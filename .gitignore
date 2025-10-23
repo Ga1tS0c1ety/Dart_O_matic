@@ -1,0 +1,17 @@
+# Fichiers objets
+*.o
+
+# Exécutables
+/bin/
+*.exe
+*.out
+
+# Fichiers temporaires
+*.log
+*.tmp
+*.swp
+
+# Dossiers de build
+/build/
+
+.vscode/
