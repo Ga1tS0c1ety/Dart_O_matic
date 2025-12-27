@@ -1,120 +1,78 @@
 # =====================================================
-# Makefile — Projet C (PC + Raspberry Pi 64 bits)
+# Makefile unique : PC (natif) + Raspberry Pi 64 bits (natif)
 # =====================================================
 
-# Nom du projet
-TARGET = mon_projet
+CXX      = g++
+CC       = gcc
+CFLAGS   = -Wall -Wextra -Iinclude
+CXXFLAGS = -Wall -Wextra -Iinclude
+
+# Détection automatique d'OpenCV via pkg-config (opencv4 ou opencv selon le système)
+PKG_CONFIG_NAME = opencv4
+ifeq ($(shell pkg-config --exists opencv4 && echo 1 || echo 0),0)
+    PKG_CONFIG_NAME = opencv
+endif
+
+# Si pkg-config trouve OpenCV → on l'utilise
+ifeq ($(shell pkg-config --exists $(PKG_CONFIG_NAME) && echo 1),1)
+    CXXFLAGS += $(shell pkg-config --cflags $(PKG_CONFIG_NAME))
+    LDLIBS   += $(shell pkg-config --libs $(PKG_CONFIG_NAME))
+    USE_OPENCV = 1
+    $(info === OpenCV détecté via pkg-config ($(PKG_CONFIG_NAME)) ===)
+else
+    $(warning === OpenCV non détecté → compilation sans project_point_opencv ===)
+    USE_OPENCV = 0
+endif
+
+LDLIBS += -lm
 
 # Répertoires
-SRC_DIR    = src
-INC_DIR    = include
-BUILD_DIR  = build
-BIN_DIR    = bin
-LIB_DIR    = lib
+BUILD_DIR = build
+BIN_DIR   = bin
+SRC_DIR   = src
+EXAMPLE_DIR = example
+
+# Sources et objets
+C_SOURCES   = $(wildcard $(SRC_DIR)/*.c)
+CPP_SOURCES = $(wildcard $(SRC_DIR)/*.cpp)
+
+OBJECTS = $(C_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+ifeq ($(USE_OPENCV),1)
+    OBJECTS += $(CPP_SOURCES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
+endif
+
+# Exemples (un exécutable par fichier .c dans example/)
+EXAMPLES_SRC = $(wildcard $(EXAMPLE_DIR)/*.c)
+EXAMPLES_BIN = $(patsubst $(EXAMPLE_DIR)/%.c, $(BIN_DIR)/%, $(EXAMPLES_SRC))
 
 # =====================================================
-# ===== Build PC (natif)
+# Règles
 # =====================================================
 
-CC = gcc
-CFLAGS = -Wall -Wextra -I$(INC_DIR)
+all: dirs $(EXAMPLES_BIN)
 
-LDFLAGS = -L$(LIB_DIR)
-LDLIBS  = -lm
+dirs:
+	@mkdir -p $(BUILD_DIR) $(BIN_DIR)
 
-SRC = $(wildcard $(SRC_DIR)/*.c)
-OBJ = $(SRC:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
-
-# =====================================================
-# ===== Build Raspberry Pi 64 bits (cross)
-# =====================================================
-
-RPI_CC = aarch64-linux-gnu-gcc
-
-BUILD_DIR_RPI = build/rpi
-BIN_DIR_RPI   = bin/rpi
-
-RPI_CFLAGS = -Wall -Wextra -I$(INC_DIR)
-RPI_LDFLAGS =
-RPI_LDLIBS  = -lm
-
-OBJ_RPI = $(SRC:$(SRC_DIR)/%.c=$(BUILD_DIR_RPI)/%.o)
-
-# =====================================================
-# ===== Règles principales
-# =====================================================
-
-all: $(BIN_DIR)/$(TARGET)
-
-rpi: $(BIN_DIR_RPI)/$(TARGET)
-
-# =====================================================
-# ===== Link PC
-# =====================================================
-
-$(BIN_DIR)/$(TARGET): $(OBJ) | $(BIN_DIR)
-	@echo " [LINK PC] $@"
-	$(CC) $(CFLAGS) $(OBJ) -o $@ $(LDFLAGS) $(LDLIBS)
-
-# =====================================================
-# ===== Compilation PC
-# =====================================================
-
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
-	@echo " [CC PC] $< → $@"
+# Compilation C pur
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | dirs
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# =====================================================
-# ===== Link Raspberry Pi
-# =====================================================
+# Compilation C++ (seulement si OpenCV disponible)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | dirs
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(BIN_DIR_RPI)/$(TARGET): $(OBJ_RPI) | $(BIN_DIR_RPI)
-	@echo " [LINK RPI] $@"
-	$(RPI_CC) $(OBJ_RPI) -o $@ $(RPI_LDFLAGS) $(RPI_LDLIBS)
+# Link des exemples (on utilise g++ car il peut linker du C et C++)
+$(BIN_DIR)/%: $(EXAMPLE_DIR)/%.c $(OBJECTS) | dirs
+	$(CXX) $(CFLAGS) $< $(OBJECTS) -o $@ $(LDLIBS)
 
-# =====================================================
-# ===== Compilation Raspberry Pi
-# =====================================================
-
-$(BUILD_DIR_RPI)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR_RPI)
-	@echo " [CC RPI] $< → $@"
-	$(RPI_CC) $(RPI_CFLAGS) -c $< -o $@
-
-# =====================================================
-# ===== Création des dossiers
-# =====================================================
-
-$(BIN_DIR) $(BUILD_DIR) $(BIN_DIR_RPI) $(BUILD_DIR_RPI):
-	@mkdir -p $@
-
-# =====================================================
-# ===== Nettoyage
-# =====================================================
-
+# Nettoyage
 clean:
-	@echo " Suppression des fichiers objets..."
-	rm -rf $(BUILD_DIR)/*.o
-	rm -rf $(BUILD_DIR_RPI)/*.o
+	rm -rf $(BUILD_DIR)
 
 fclean: clean
-	@echo " Suppression des exécutables..."
-	rm -rf $(BIN_DIR)/$(TARGET)
-	rm -rf $(BIN_DIR_RPI)/$(TARGET)
+	rm -rf $(BIN_DIR)
 
 re: fclean all
 
-# =====================================================
-# ===== Aide
-# =====================================================
-
-help:
-	@echo ""
-	@echo " Commandes disponibles :"
-	@echo "  make        → Compile la version PC"
-	@echo "  make rpi    → Compile la version Raspberry Pi 64 bits"
-	@echo "  make clean  → Supprime les fichiers objets"
-	@echo "  make fclean → Supprime tout"
-	@echo "  make re     → Recompile tout"
-	@echo ""
-
-.PHONY: all rpi clean fclean re help
+.PHONY: all clean fclean re dirs
