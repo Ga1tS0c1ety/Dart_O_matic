@@ -1,84 +1,120 @@
-# Makefile — Projet C avec src/, include/, build/, bin/, et lib/
+# =====================================================
+# Makefile — Projet C (PC + Raspberry Pi 64 bits)
+# =====================================================
 
-# Nom du projet (nom de l'exécutable final)
+# Nom du projet
 TARGET = mon_projet
 
-# 📁 Répertoires principaux
-SRC_DIR = src
-INC_DIR = include
-BUILD_DIR = build
-BIN_DIR = bin
-LIB_DIR = lib
+# Répertoires
+SRC_DIR    = src
+INC_DIR    = include
+BUILD_DIR  = build
+BIN_DIR    = bin
+LIB_DIR    = lib
 
-#  Compilateur et options
+# =====================================================
+# ===== Build PC (natif)
+# =====================================================
+
 CC = gcc
 CFLAGS = -Wall -Wextra -I$(INC_DIR)
 
-# Lien avec les bibliothèques dans lib/
 LDFLAGS = -L$(LIB_DIR)
-LDLIBS = -lm    
+LDLIBS  = -lm
 
-#  Trouve automatiquement tous les fichiers .c dans src/
 SRC = $(wildcard $(SRC_DIR)/*.c)
-
-#  Génère les noms des fichiers objets (.o) correspondants dans build/
 OBJ = $(SRC:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
+# =====================================================
+# ===== Build Raspberry Pi 64 bits (cross)
+# =====================================================
 
-#  Règle par défaut
+RPI_CC = aarch64-linux-gnu-gcc
+
+BUILD_DIR_RPI = build/rpi
+BIN_DIR_RPI   = bin/rpi
+
+RPI_CFLAGS = -Wall -Wextra -I$(INC_DIR)
+RPI_LDFLAGS =
+RPI_LDLIBS  = -lm
+
+OBJ_RPI = $(SRC:$(SRC_DIR)/%.c=$(BUILD_DIR_RPI)/%.o)
+
+# =====================================================
+# ===== Règles principales
+# =====================================================
 
 all: $(BIN_DIR)/$(TARGET)
 
+rpi: $(BIN_DIR_RPI)/$(TARGET)
 
-#  Édition de liens : création de l’exécutable final
+# =====================================================
+# ===== Link PC
+# =====================================================
 
 $(BIN_DIR)/$(TARGET): $(OBJ) | $(BIN_DIR)
-	@echo " [LINK] $@"
+	@echo " [LINK PC] $@"
 	$(CC) $(CFLAGS) $(OBJ) -o $@ $(LDFLAGS) $(LDLIBS)
 
-#  Compilation de chaque fichier source en fichier objet
+# =====================================================
+# ===== Compilation PC
+# =====================================================
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
-	@echo " [CC] $< → $@"
+	@echo " [CC PC] $< → $@"
 	$(CC) $(CFLAGS) -c $< -o $@
 
-#  Création des dossiers s’ils n’existent pas
+# =====================================================
+# ===== Link Raspberry Pi
+# =====================================================
 
-$(BIN_DIR) $(BUILD_DIR):
+$(BIN_DIR_RPI)/$(TARGET): $(OBJ_RPI) | $(BIN_DIR_RPI)
+	@echo " [LINK RPI] $@"
+	$(RPI_CC) $(OBJ_RPI) -o $@ $(RPI_LDFLAGS) $(RPI_LDLIBS)
+
+# =====================================================
+# ===== Compilation Raspberry Pi
+# =====================================================
+
+$(BUILD_DIR_RPI)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR_RPI)
+	@echo " [CC RPI] $< → $@"
+	$(RPI_CC) $(RPI_CFLAGS) -c $< -o $@
+
+# =====================================================
+# ===== Création des dossiers
+# =====================================================
+
+$(BIN_DIR) $(BUILD_DIR) $(BIN_DIR_RPI) $(BUILD_DIR_RPI):
 	@mkdir -p $@
 
-# Nettoyage des fichiers intermédiaires
+# =====================================================
+# ===== Nettoyage
+# =====================================================
 
 clean:
 	@echo " Suppression des fichiers objets..."
 	rm -rf $(BUILD_DIR)/*.o
-
-
-#  Nettoyage complet
+	rm -rf $(BUILD_DIR_RPI)/*.o
 
 fclean: clean
 	@echo " Suppression des exécutables..."
 	rm -rf $(BIN_DIR)/$(TARGET)
-
-
-#  Recompile tout depuis zéro
+	rm -rf $(BIN_DIR_RPI)/$(TARGET)
 
 re: fclean all
 
-
-#  Aide (documentation des commandes)
+# =====================================================
+# ===== Aide
+# =====================================================
 
 help:
 	@echo ""
 	@echo " Commandes disponibles :"
-	@echo "  make        → Compile le projet (par défaut)"
-	@echo "  make clean  → Supprime les fichiers objets (.o)"
-	@echo "  make fclean → Supprime tout (binaires + build)"
-	@echo "  make re     → Recompile tout depuis zéro"
-	@echo "  make help   → Affiche cette aide"
+	@echo "  make        → Compile la version PC"
+	@echo "  make rpi    → Compile la version Raspberry Pi 64 bits"
+	@echo "  make clean  → Supprime les fichiers objets"
+	@echo "  make fclean → Supprime tout"
+	@echo "  make re     → Recompile tout"
 	@echo ""
 
-
-# 🧩 Règles spéciales
-
-.PHONY: all clean fclean re help
+.PHONY: all rpi clean fclean re help
