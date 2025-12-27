@@ -15,6 +15,11 @@ typedef struct {
     double fx, fy;
     double cx, cy;
     double s;
+
+    // Coefficients de distorsion (modèle OpenCV complet)
+    double k1, k2, k3, k4, k5, k6;  // radiaux (k4,k5,k6 pour modèle rational)
+    double p1, p2;                  // tangentiels
+    double s1, s2, s3, s4;          // thin prism distortion
 } IntrinsicParams;
 
 typedef struct {
@@ -31,9 +36,19 @@ void project_point(const CameraModel* cam,
                    double X, double Y, double Z,
                    double* u, double* v);
 
+// Nouvelle fonction : projection avec distorsion complète (modèle OpenCV avancé)
+void project_point_distorted(const CameraModel* cam,
+                             double X, double Y, double Z,
+                             double* u, double* v);
+
 void project_point_opencv(const CameraModel* cam,
                           double X, double Y, double Z,
                           double* u, double* v);
+
+// Nouvelle fonction : projection OpenCV avec distorsion complète (14 coeffs)
+void project_point_opencv_distorted(const CameraModel* cam,
+                                    double X, double Y, double Z,
+                                    double* u, double* v);
 
 #ifdef __cplusplus
 }

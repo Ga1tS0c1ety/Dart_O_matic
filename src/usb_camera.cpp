@@ -4,6 +4,8 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 
+//#define OPENCV
+
 static cv::VideoCapture cap;
 static cv::Mat frame_raw;
 static cv::Mat frame_processed;
@@ -49,9 +51,23 @@ int usb_camera_read(unsigned char* output_buffer, size_t buffer_size) {
     frame_processed = frame_raw.clone();  // copie pour traitement
 
     // === Projection des points 3D ===
-    CameraModel model = {
-        .K = {600.0, 600.0, (double)cam_width/2, (double)cam_height/2, 0.0},
-        .RT = {{1,0,0, 0,1,0, 0,0,1}, {0,0,0}}
+CameraModel model = {
+        .K = {
+            .fx = 600.0,
+            .fy = 600.0,
+            .cx = (double)cam_width / 2,
+            .cy = (double)cam_height / 2,
+            .s  = 0.0,
+            // Distorsion : mise à zéro par défaut (à calibrer plus tard)
+            .k1 = 5.0, .k2 = 0.0, .k3 = 0.0,
+            .k4 = 0.0, .k5 = 0.0, .k6 = 0.0,
+            .p1 = 0.0, .p2 = 0.0,
+            .s1 = 0.0, .s2 = 0.0, .s3 = 0.0, .s4 = 0.0
+        },
+        .RT = {
+            .R = {1,0,0, 0,1,0, 0,0,1},
+            .t = {0,0,0}
+        }
     };
 
     double test_points[][3] = {
@@ -63,7 +79,11 @@ int usb_camera_read(unsigned char* output_buffer, size_t buffer_size) {
 
     for (int i = 0; i < 7; ++i) {
         double u, v;
-        project_point_opencv(&model, test_points[i][0], test_points[i][1], test_points[i][2], &u, &v);
+        #ifdef OPENCV
+        project_point_opencv_distorted(&model, test_points[i][0], test_points[i][1], test_points[i][2], &u, &v);
+        #else
+        project_point_distorted(&model, test_points[i][0], test_points[i][1], test_points[i][2], &u, &v);
+        #endif
         if (u >= 0 && u < cam_width && v >= 0 && v < cam_height && test_points[i][2] > 0) {
             cv::circle(frame_processed, cv::Point(cvRound(u), cvRound(v)), 12, cv::Scalar(0,255,0), -1);
             cv::putText(frame_processed, std::to_string(i+1), cv::Point(cvRound(u)+15, cvRound(v)),

@@ -16,7 +16,7 @@ void project_point_opencv(const CameraModel* cam,
 
 int main() {
     CameraModel cam = {
-        .K = {800, 800, 320, 240, 0},
+        .K = {800, 800, 320, 240, 0, 0, 0,0,0,0,0,0,0,0,0,0,0},
         .RT = {
             {1,0,0, 0,1,0, 0,0,1},
             {0,0,0}
