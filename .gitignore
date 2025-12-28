@@ -14,4 +14,9 @@
 # Dossiers de build
 /build/
 
+#images caliib
+/calib_images/
+camera_params.yaml
+
 .vscode/
+

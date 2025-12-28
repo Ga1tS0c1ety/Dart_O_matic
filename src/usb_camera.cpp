@@ -3,7 +3,7 @@
 #include "../include/camera_model.h"
 #include <opencv2/opencv.hpp>
 #include <iostream>
-
+#include <opencv2/core.hpp>  // pour FileStorage
 //#define OPENCV
 
 static cv::VideoCapture cap;
@@ -42,6 +42,47 @@ int usb_camera_init(int camera_index, int width, int height) {
     return 0;
 }
 
+static void load_calibration_params(const char* filename, CameraModel* model)
+{
+    cv::FileStorage fs(filename, cv::FileStorage::READ);
+    if (!fs.isOpened()) {
+        std::cerr << "[USB_CAMERA] Impossible d'ouvrir " << filename << " (utilisation des valeurs par défaut)" << std::endl;
+        return;
+    }
+
+    cv::Mat cameraMatrix, distCoeffs;
+    fs["camera_matrix"] >> cameraMatrix;
+    fs["distortion_coefficients"] >> distCoeffs;
+
+    // Intrinsèques
+    model->K.fx = cameraMatrix.at<double>(0,0);
+    model->K.fy = cameraMatrix.at<double>(1,1);
+    model->K.cx = cameraMatrix.at<double>(0,2);
+    model->K.cy = cameraMatrix.at<double>(1,2);
+    model->K.s  = 0.0;  // skew généralement 0
+
+    // Distorsion complète
+    model->K.k1 = distCoeffs.at<double>(0);
+    model->K.k2 = distCoeffs.at<double>(1);
+    model->K.p1 = distCoeffs.at<double>(2);
+    model->K.p2 = distCoeffs.at<double>(3);
+    model->K.k3 = distCoeffs.at<double>(4);
+    model->K.k4 = distCoeffs.at<double>(5);
+    model->K.k5 = distCoeffs.at<double>(6);
+    model->K.k6 = distCoeffs.at<double>(7);
+    model->K.s1 = distCoeffs.at<double>(8);
+    model->K.s2 = distCoeffs.at<double>(9);
+    model->K.s3 = distCoeffs.at<double>(10);
+    model->K.s4 = distCoeffs.at<double>(11);
+
+    fs.release();
+    std::cout << "[USB_CAMERA] Calibration chargée depuis " << filename << std::endl;
+    std::cout << "[USB_CAMERA] fx=" << model->K.fx << " fy=" << model->K.fy 
+              << " cx=" << model->K.cx << " cy=" << model->K.cy << std::endl;
+}
+
+
+
 int usb_camera_read(unsigned char* output_buffer, size_t buffer_size) {
     if (!cap.isOpened()) return -1;
 
@@ -59,7 +100,7 @@ CameraModel model = {
             .cy = (double)cam_height / 2,
             .s  = 0.0,
             // Distorsion : mise à zéro par défaut (à calibrer plus tard)
-            .k1 = 5.0, .k2 = 0.0, .k3 = 0.0,
+            .k1 = 0.0, .k2 = 0.0, .k3 = 0.0,
             .k4 = 0.0, .k5 = 0.0, .k6 = 0.0,
             .p1 = 0.0, .p2 = 0.0,
             .s1 = 0.0, .s2 = 0.0, .s3 = 0.0, .s4 = 0.0
@@ -77,31 +118,64 @@ CameraModel model = {
         {0.15, 0.15, 0.8}, {-0.1, -0.15, 1.2}
     };
 
-    for (int i = 0; i < 7; ++i) {
-        double u, v;
-        #ifdef OPENCV
-        project_point_opencv_distorted(&model, test_points[i][0], test_points[i][1], test_points[i][2], &u, &v);
-        #else
-        project_point_distorted(&model, test_points[i][0], test_points[i][1], test_points[i][2], &u, &v);
-        #endif
-        if (u >= 0 && u < cam_width && v >= 0 && v < cam_height && test_points[i][2] > 0) {
-            cv::circle(frame_processed, cv::Point(cvRound(u), cvRound(v)), 12, cv::Scalar(0,255,0), -1);
-            cv::putText(frame_processed, std::to_string(i+1), cv::Point(cvRound(u)+15, cvRound(v)),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255,255,0), 2);
+    // Après le std::cout de l'initialisation
+    load_calibration_params("camera_params.yaml", &model);
+
+// === Reprojection complète de l'image sur un plan Z = constant (vue 3D aplatie) ===
+    double Z_plan = 5.0;  // Distance du plan virtuel en mètres (ajuste si tu veux : 0.5, 1.5, etc.)
+
+    cv::Mat projected_image(cam_height, cam_width, CV_8UC3, cv::Scalar(50,50,50));  // fond gris foncé
+
+    for (int v = 0; v < cam_height; ++v) {
+        for (int u = 0; u < cam_width; ++u) {
+            // Coordonnées normalisées (sans distorsion)
+            double x = (u - model.K.cx) / model.K.fx;
+            double y = (v - model.K.cy) / model.K.fy;
+
+            // Point 3D sur le plan Z = Z_plan
+            double X = x * Z_plan;
+            double Y = y * Z_plan;
+            double Z = Z_plan;
+
+            double u_proj, v_proj;
+
+            // Projection avec distorsion (choix entre OpenCV et manuelle)
+#ifdef OPENCV
+            project_point_opencv_distorted(&model, X, Y, Z, &u_proj, &v_proj);
+#else
+            project_point_distorted(&model, X, Y, Z, &u_proj, &v_proj);
+#endif
+
+            int ui = cvRound(u_proj);
+            int vi = cvRound(v_proj);
+
+            // Si le pixel projeté tombe dans l'image, on copie la couleur originale
+            if (ui >= 0 && ui < cam_width && vi >= 0 && vi < cam_height) {
+                projected_image.at<cv::Vec3b>(vi, ui) = frame_raw.at<cv::Vec3b>(v, u);
+            }
         }
     }
+
+    // Optionnel : superposer l'image originale en transparence pour comparer
+   // cv::addWeighted(frame_raw, 0.4, projected_image, 0.6, 0.0, frame_processed);
+
+    // Ou afficher seulement la vue projetée :
+     frame_processed = projected_image.clone();
+
+    // Texte info
+    std::string text = "Vue 3D projetee sur plan Z = " + std::to_string(Z_plan) + " m";
+    cv::putText(frame_processed, text, cv::Point(10, cam_height - 20),
+                cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
 
     // Copie dans le buffer fourni
     size_t required = (size_t)cam_width * cam_height * 3;
     if (buffer_size < required) return -1;
     std::memcpy(output_buffer, frame_processed.data, required);
 
-    // Affichage (seulement ici, en C++)
+    // Affichage
     if (display_enabled) {
         cv::imshow("Caméra USB - Projection 3D", frame_processed);
-        if (cv::waitKey(1) == 'q') {
-            // On pourrait retourner un code spécial, mais pour l'exemple simple on continue
-        }
+        cv::waitKey(1);
     }
 
     return 0;

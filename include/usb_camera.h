@@ -22,6 +22,7 @@ void usb_camera_get_size(int* width, int* height);
 // Ferme proprement
 void usb_camera_close(void);
 
+
 #ifdef __cplusplus
 }
 #endif
