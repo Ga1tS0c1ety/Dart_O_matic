@@ -16,7 +16,7 @@
 
 #images caliib
 /calib_images/
-camera_params.yaml
+cam_param/
 
 .vscode/
 

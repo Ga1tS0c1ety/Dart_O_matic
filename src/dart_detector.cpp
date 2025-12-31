@@ -61,10 +61,28 @@ int dart_detector_process(const unsigned char* input_frame,
     }
 
     // ==================== DIFF ====================
+        // ==================== ÉGALISATION LOCALE ====================
+    cv::Mat current_eq, prev_eq;
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(8,8));
+    clahe->apply(current_gray, current_eq);
+    clahe->apply(prev_gray, prev_eq);
+
+    // ==================== FILTRAGE ====================
+    cv::Mat current_filt, prev_filt;
+    cv::bilateralFilter(current_eq, current_filt, 5, 50, 50);
+    cv::bilateralFilter(prev_eq, prev_filt, 5, 50, 50);
+
+    // ==================== DIFF ====================
     cv::Mat diff_full;
-    cv::absdiff(current_gray, prev_gray, diff_full);
+    cv::absdiff(current_filt, prev_filt, diff_full);
     cv::GaussianBlur(diff_full, diff_full, cv::Size(5,5), 0);
     cv::threshold(diff_full, diff_full, 40, 255, cv::THRESH_BINARY);
+
+    cv::Mat kernel = cv::getStructuringElement(
+    cv::MORPH_RECT, cv::Size(3, 15)
+);
+cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
+
 
     // ==================== TIERS CENTRAL ====================
     int h_start = img_height / 3;
@@ -86,14 +104,33 @@ int dart_detector_process(const unsigned char* input_frame,
                                        });
     std::vector<cv::Point> main_contour = *max_cont_it;
 
+    cv::Rect bbox = cv::boundingRect(main_contour);
+
+    float aspect_ratio = (float)bbox.height / (float)bbox.width;
+
+    if (aspect_ratio < 1.5f) {
+        // contour trop horizontal → rejet
+        prev_gray = current_gray.clone();
+        return 0;
+    }
+
+
+
     for (auto &pt : main_contour) pt.y += h_start;
 
     // ==================== FIT LINE ====================
     cv::Vec4f line;
-    cv::fitLine(main_contour, line, cv::DIST_L2, 0, 0.01, 0.01);
+    cv::fitLine(main_contour, line, cv::DIST_FAIR, 0, 0.005, 0.005);
     cv::Point2f line_dir(line[0], line[1]);
     cv::Point2f line_pt(line[2], line[3]);
     if (line_dir.y < 0) line_dir = -line_dir;
+
+    // si la droite est trop horizontale → invalide
+if (std::abs(line_dir.y) < std::abs(line_dir.x)) {
+    prev_gray = current_gray.clone();
+    return 0;
+}
+
 
     // ==================== FILTRAGE ====================
     cv::Mat diff_filtered = cv::Mat::zeros(diff_full.size(), CV_8UC1);
@@ -125,10 +162,19 @@ int dart_detector_process(const unsigned char* input_frame,
         return 0;
     }
 
-    cv::Point impact_pt = *std::max_element(points.begin(), points.end(),
-                                            [](const cv::Point& a, const cv::Point& b){
-                                                return a.y < b.y;
-                                            });
+    float max_proj = -FLT_MAX;
+cv::Point impact_pt;
+
+for (const auto& p : points) {
+    cv::Point2f v(p.x - line_pt.x, p.y - line_pt.y);
+    float proj = v.dot(line_dir);  // projection sur l’axe de la fléchette
+
+    if (proj > max_proj) {
+        max_proj = proj;
+        impact_pt = p;
+    }
+}
+
 
     last_valid_tip = impact_pt;
     if (impact_u) *impact_u = last_valid_tip.x;
@@ -139,7 +185,26 @@ int dart_detector_process(const unsigned char* input_frame,
     // ==================== DEBUG ====================
     cv::Mat debug = frame.clone();
     cv::circle(debug, last_valid_tip, 8, {0,255,0}, -1);
-    cv::imshow("DIFF", diff_full);
+
+    cv::Mat diff_color;
+cv::cvtColor(diff_full, diff_color, cv::COLOR_GRAY2BGR);
+
+float scale = 1000.0f;
+
+cv::Point pt1(
+    cvRound(line_pt.x - scale * line_dir.x),
+    cvRound(line_pt.y - scale * line_dir.y)
+);
+
+cv::Point pt2(
+    cvRound(line_pt.x + scale * line_dir.x),
+    cvRound(line_pt.y + scale * line_dir.y)
+);
+
+cv::line(diff_color, pt1, pt2, cv::Scalar(0, 0, 255), 2);
+
+
+    cv::imshow("DIFF", diff_color);
     cv::imshow("DEBUG", debug);
     cv::waitKey(1);
 

@@ -68,3 +68,45 @@ void project_point_distorted(const CameraModel* cam,
     *u = cam->K.fx * xd + cam->K.s * yd + cam->K.cx;
     *v = cam->K.fy * yd + cam->K.cy;
 }
+
+// Iterative undistortion using Newton-Raphson method
+void undistort_point(const CameraModel* cam, double u_in, double v_in, double* u_out, double* v_out)
+{
+    // Coordonnées normalisées
+    double x = (u_in - cam->K.cx)/cam->K.fx;
+    double y = (v_in - cam->K.cy)/cam->K.fy;
+
+    double x0 = x, y0 = y;
+
+    // itérations pour convergence
+    for(int iter=0; iter<5; iter++)
+    {
+        double r2 = x*x + y*y;
+        double r4 = r2*r2;
+        double r6 = r4*r2;
+
+        // Radial factor (rational model)
+        double radial_num = 1.0 + cam->K.k1*r2 + cam->K.k2*r4 + cam->K.k3*r6;
+        double radial_den = 1.0 + cam->K.k4*r2 + cam->K.k5*r4 + cam->K.k6*r6;
+        if(radial_den == 0.0) radial_den = 1.0;
+        double radial = radial_num / radial_den;
+
+        // Tangential
+        double dx = 2.0*cam->K.p1*x*y + cam->K.p2*(r2 + 2.0*x*x);
+        double dy = cam->K.p1*(r2 + 2.0*y*y) + 2.0*cam->K.p2*x*y;
+
+        // Thin prism
+        dx += cam->K.s1*r2 + cam->K.s2*r4;
+        dy += cam->K.s3*r2 + cam->K.s4*r4;
+
+        double x_dist = x*radial + dx;
+        double y_dist = y*radial + dy;
+
+        // Correction
+        x = x0 - (x_dist - x0);
+        y = y0 - (y_dist - y0);
+    }
+
+    *u_out = x;
+    *v_out = y;
+}

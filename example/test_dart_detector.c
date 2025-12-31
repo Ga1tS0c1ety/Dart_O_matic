@@ -5,7 +5,7 @@
 #include "../include/dart_detector.h"
 
 int main(void) {
-    if (usb_camera_init(4, 1280, 720) != 0) {
+    if (usb_camera_init(2, 1280, 720) != 0) {
         printf("Erreur ouverture caméra\n");
         return -1;
     }

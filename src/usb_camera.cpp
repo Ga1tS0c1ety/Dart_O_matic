@@ -42,47 +42,6 @@ int usb_camera_init(int camera_index, int width, int height) {
     return 0;
 }
 
-static void load_calibration_params(const char* filename, CameraModel* model)
-{
-    cv::FileStorage fs(filename, cv::FileStorage::READ);
-    if (!fs.isOpened()) {
-        std::cerr << "[USB_CAMERA] Impossible d'ouvrir " << filename << " (utilisation des valeurs par défaut)" << std::endl;
-        return;
-    }
-
-    cv::Mat cameraMatrix, distCoeffs;
-    fs["camera_matrix"] >> cameraMatrix;
-    fs["distortion_coefficients"] >> distCoeffs;
-
-    // Intrinsèques
-    model->K.fx = cameraMatrix.at<double>(0,0);
-    model->K.fy = cameraMatrix.at<double>(1,1);
-    model->K.cx = cameraMatrix.at<double>(0,2);
-    model->K.cy = cameraMatrix.at<double>(1,2);
-    model->K.s  = 0.0;  // skew généralement 0
-
-    // Distorsion complète
-    model->K.k1 = distCoeffs.at<double>(0);
-    model->K.k2 = distCoeffs.at<double>(1);
-    model->K.p1 = distCoeffs.at<double>(2);
-    model->K.p2 = distCoeffs.at<double>(3);
-    model->K.k3 = distCoeffs.at<double>(4);
-    model->K.k4 = distCoeffs.at<double>(5);
-    model->K.k5 = distCoeffs.at<double>(6);
-    model->K.k6 = distCoeffs.at<double>(7);
-    model->K.s1 = distCoeffs.at<double>(8);
-    model->K.s2 = distCoeffs.at<double>(9);
-    model->K.s3 = distCoeffs.at<double>(10);
-    model->K.s4 = distCoeffs.at<double>(11);
-
-    fs.release();
-    std::cout << "[USB_CAMERA] Calibration chargée depuis " << filename << std::endl;
-    std::cout << "[USB_CAMERA] fx=" << model->K.fx << " fy=" << model->K.fy 
-              << " cx=" << model->K.cx << " cy=" << model->K.cy << std::endl;
-}
-
-
-
 int usb_camera_read(unsigned char* output_buffer, size_t buffer_size) {
     if (!cap.isOpened()) return -1;
 
