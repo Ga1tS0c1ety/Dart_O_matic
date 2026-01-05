@@ -9,7 +9,7 @@
 
 int main() {
     // Liste des IDs de caméra à lancer (modifie-les toi-même)
-    int camera_ids[] = {2, 4};  
+    int camera_ids[] = {2, 4, 6};  
     int cam_count = sizeof(camera_ids) / sizeof(camera_ids[0]);
 
     pid_t pids[cam_count + 1]; // +1 pour master
