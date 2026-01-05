@@ -19,45 +19,24 @@ void init_manual_extrinsics(CameraInfo* cams, int n_cams)
         fprintf(stderr, "[EXTRINSIC] Au moins 2 caméras requises\n");
         return;
     }
+    int cam_ref = 4;
+    for (int i = 0; i < n_cams; ++i) {
+        char filename[256];
+        snprintf(filename, sizeof(filename),
+                 "cam_param/camera_extrinsics_r%d%d.yaml",cam_ref,
+                 cams[i].camera_id);
 
-    /* ===== PARAMÈTRES À AJUSTER ===== */
-    const double baseline = 0.45; // distance réelle entre caméras (m)
-    /* ================================= */
-
-    /* === Caméra 0 : référence === */
-    {
-        CameraModel* cam = &cams[0].cam_model;
-
-        memset(cam->RT.R, 0, sizeof(cam->RT.R));
-        cam->RT.R[0] = 1.0;
-        cam->RT.R[4] = 1.0;
-        cam->RT.R[8] = 1.0;
-
-        cam->RT.t[0] = 0.0;
-        cam->RT.t[1] = 0.0;
-        cam->RT.t[2] = 0.0;
-
-        printf("[EXTRINSIC] Cam %d = référence\n", cams[0].camera_id);
-    }
-
-    /* === Caméra 1 : perpendiculaire (90°) === */
-    {
-        CameraModel* cam = &cams[1].cam_model;
-
-        /* Rotation Ry(-90°) */
-        memset(cam->RT.R, 0, sizeof(cam->RT.R));
-        cam->RT.R[2] = -1.0;
-        cam->RT.R[4] =  1.0;
-        cam->RT.R[6] =  1.0;
-
-        /* Translation */
-        cam->RT.t[0] = baseline;
-        cam->RT.t[1] = 0.0;
-        cam->RT.t[2] = 0.0;
-
-        printf("[EXTRINSIC] Cam %d = perpendiculaire\n", cams[1].camera_id);
+        if (load_extrinsics_yaml(filename, &cams[i].cam_model) == 0) {
+            printf("[EXTRINSIC] Cam %d chargée depuis %s\n",
+                   cams[i].camera_id, filename);
+        } else {
+            fprintf(stderr,
+                    "[EXTRINSIC] ÉCHEC chargement extrinsèques cam %d%d\n",cam_ref,
+                    cams[i].camera_id);
+        }
     }
 }
+
 
 
 int main(void)

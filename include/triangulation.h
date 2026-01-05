@@ -28,6 +28,11 @@ int triangulate_point_opencv(const ObservedPoint2D* points,
                       int n,
                       double* X, double* Y, double* Z);
 
+void cartesian_to_dartboard_polar(double X, double Y, double Z,
+                                  double *r, double *theta_deg, double *height_z);
+
+void print_dartboard_polar(double X, double Y, double Z);
+
 #ifdef __cplusplus
 }
 #endif

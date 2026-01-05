@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
     int height = 720;
     int board_width = 9;
     int board_height = 6;
-    float square_size = 12.5f; // mm
+    float square_size = 8.0f; // mm
 
     int ret = live_calibrate_camera(camera_id, width, height,
                                     board_width, board_height,

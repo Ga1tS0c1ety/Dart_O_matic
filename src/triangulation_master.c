@@ -23,6 +23,13 @@ void handle_impact(CameraInfo* cams, int n_cams, int camera_id, double u, double
         }
     }
 
+    cams[0].last_u = 730;
+    cams[0].last_v = 387;
+    
+
+    cams[1].last_u = 590;
+    cams[1].last_v = 360;
+    
     int ready = 0;
     for(int i=0;i<n_cams;i++) if(cams[i].has_impact) ready++;
     if(ready<n_cams) return;
@@ -75,6 +82,8 @@ void handle_impact(CameraInfo* cams, int n_cams, int camera_id, double u, double
                 err < 8.0 ? "[ACCEPTABLE]" : "[MAUVAIS]")
             );
         }
+
+        print_dartboard_polar(X, Y, Z);
 }
     else
         printf("[TRIANG] Triangulation impossible (rayons parallèles)\n");

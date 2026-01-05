@@ -52,6 +52,8 @@ void project_point_opencv_distorted(const CameraModel* cam,
 
 void load_calibration_params(const char* filename, CameraModel* model);
 
+int load_extrinsics_yaml(const char* filename, CameraModel* cam);
+
 // Dé-distorsion d'un point 2D (inverse de project_point_distorted)
 // u_in,v_in : coordonnées projetées avec distorsion
 // u_out,v_out : coordonnées corrigées (non distordues)

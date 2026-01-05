@@ -136,3 +136,33 @@ void undistort_point_opencv(const CameraModel* cam, double u_in, double v_in,
     *u_out = pts_out[0].x;
     *v_out = pts_out[0].y;
 }
+
+int load_extrinsics_yaml(const char* filename, CameraModel* cam)
+{
+    cv::FileStorage fs(filename, cv::FileStorage::READ);
+    if (!fs.isOpened()) {
+        fprintf(stderr, "[EXTRINSIC] Impossible d'ouvrir %s\n", filename);
+        return -1;
+    }
+
+    cv::Mat R, t;
+    fs["R"] >> R;
+    fs["t"] >> t;
+    fs.release();
+
+    if (R.empty() || t.empty() || R.rows != 3 || R.cols != 3 || t.total() != 3) {
+        fprintf(stderr, "[EXTRINSIC] Format invalide dans %s\n", filename);
+        return -1;
+    }
+
+    /* Copie R (row-major) */
+    for (int i = 0; i < 9; ++i)
+        cam->RT.R[i] = R.at<double>(i / 3, i % 3);
+
+    /* Copie t */
+    cam->RT.t[0] = t.at<double>(0);
+    cam->RT.t[1] = t.at<double>(1);
+    cam->RT.t[2] = t.at<double>(2);
+
+    return 0;
+}

@@ -84,6 +84,40 @@ int triangulate_point(const ObservedPoint2D* points,
     return 0;
 }
 
+// Fonction pour convertir cartésien → polaire (pour cible de fléchettes)
+void cartesian_to_dartboard_polar(double X, double Y, double Z,
+                                  double *r, double *theta_deg, double *height_z)
+{
+    // Distance radiale dans le plan XY
+    *r = sqrt(X * X + Y * Y);
+
+    // Angle en radians, puis conversion en degrés
+    // atan2(Y, X) : Y en premier pour convention mathématique standard
+    double theta_rad = atan2(Y, X);
+    *theta_deg = theta_rad * 180.0 / M_PI;
+
+    // Normalisation optionnelle entre 0 et 360° (au lieu de -180 à +180)
+    if (*theta_deg < 0.0) {
+        *theta_deg += 360.0;
+    }
+
+    // Hauteur perpendiculaire (Z reste tel quel)
+    *height_z = Z;
+}
+
+// Version avec affichage direct (pratique pour tests)
+void print_dartboard_polar(double X, double Y, double Z)
+{
+    double r, theta_deg, height_z;
+    cartesian_to_dartboard_polar(X, Y, Z, &r, &theta_deg, &height_z);
+
+    printf("Point 3D : (X=%.2f, Y=%.2f, Z=%.2f) mm\n", X, Y, Z);
+    printf("→ Polaire :\n");
+    printf("   Distance au centre (r) : %.2f mm\n", r);
+    printf("   Angle (θ)             : %.2f ° (0° = +X, sens anti-horaire)\n", theta_deg);
+    printf("   Hauteur (Z)           : %.2f mm\n\n", height_z);
+}
+
 #ifdef __cplusplus
 }
 #endif
