@@ -23,12 +23,14 @@ void handle_impact(CameraInfo* cams, int n_cams, int camera_id, double u, double
         }
     }
 
-    cams[0].last_u = 730;
-    cams[0].last_v = 387;
+    //test 1
+   // cams[0].last_u = 730;
+    //cams[0].last_v = 387;
     
 
-    cams[1].last_u = 590;
-    cams[1].last_v = 360;
+    //cams[1].last_u = 590;
+    //cams[1].last_v = 360;
+
     
     int ready = 0;
     for(int i=0;i<n_cams;i++) if(cams[i].has_impact) ready++;
@@ -37,7 +39,7 @@ void handle_impact(CameraInfo* cams, int n_cams, int camera_id, double u, double
     ObservedPoint2D points[n_cams];
     CameraModel cam_models[n_cams];
     int idx=0;
-    for(int i=0;i<n_cams && idx<2;i++){
+    for(int i=0;i<n_cams && idx<n_cams;i++){
         if(cams[i].has_impact){
             // Dé-distorsion
             double x_corr, y_corr;

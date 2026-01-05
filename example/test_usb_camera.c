@@ -3,12 +3,19 @@
 #include <stdlib.h>
 #include "../include/usb_camera.h"
 
-int main(void)
+int main(int argc, char** argv)
 {
+    if (argc != 2) {
+        printf("Usage : %s <camera_id>\n", argv[0]);
+        return -1;
+    }
+
+    int camera_id = atoi(argv[1]);
+
     int width, height;
 
     // Change l'index selon ta caméra USB (teste 0, 1, 2, 3...)
-    if (usb_camera_init(2, 1280, 720) != 0) {
+    if (usb_camera_init(camera_id, 1280, 720) != 0) {
         printf("Erreur : impossible d'ouvrir la caméra USB (index 2)\n");
         return -1;
     }
