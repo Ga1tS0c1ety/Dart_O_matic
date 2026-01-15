@@ -9,7 +9,7 @@
 
 int main() {
     // Liste des IDs de caméra à lancer (modifie-les toi-même)
-    int camera_ids[] = {2, 4, 6};  
+    int camera_ids[] = {2, 4, 6 , 8};  
     int cam_count = sizeof(camera_ids) / sizeof(camera_ids[0]);
 
     pid_t pids[cam_count + 1]; // +1 pour master
@@ -37,6 +37,8 @@ int main() {
         } else if (pid > 0) {
             pids[pid_index++] = pid;
         }
+        usleep(800000);
+
     }
 
     // Attendre tous les enfants

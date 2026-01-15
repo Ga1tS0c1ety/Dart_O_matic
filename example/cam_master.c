@@ -46,9 +46,10 @@ int main(void)
     {2, "cam_param/camera_params_2.yaml", {0}, 0.0, 0.0, 0},
     {4, "cam_param/camera_params_4.yaml", {0}, 0.0, 0.0, 0},
    {6, "cam_param/camera_params_6.yaml", {0}, 0.0, 0.0, 0},
+   {8, "cam_param/camera_params_8.yaml", {0}, 0.0, 0.0, 0},
     };
 
-    int n_cams = 3;
+    int n_cams = 4;
 
     init_cameras(cameras, n_cams);
     init_manual_extrinsics(cameras, n_cams);

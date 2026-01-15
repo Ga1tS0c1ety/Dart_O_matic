@@ -33,6 +33,12 @@ void cartesian_to_dartboard_polar(double X, double Y, double Z,
 
 void print_dartboard_polar(double X, double Y, double Z);
 
+int triangulate_point_fixed_z(const ObservedPoint2D* points,
+                             const CameraModel* cams,
+                             int n,
+                             double fixed_z,
+                             double* X, double* Y, double* Z);
+
 #ifdef __cplusplus
 }
 #endif

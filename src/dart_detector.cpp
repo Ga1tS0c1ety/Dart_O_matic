@@ -5,6 +5,8 @@
 #include <vector>
 #include <cmath>
 
+//#define DEBUG
+
 // ==================== GLOBALS ====================
 static int img_width = 0;
 static int img_height = 0;
@@ -203,10 +205,11 @@ cv::Point pt2(
 
 cv::line(diff_color, pt1, pt2, cv::Scalar(0, 0, 255), 2);
 
-
+    #ifdef DEBUG
     cv::imshow("DIFF", diff_color);
     cv::imshow("DEBUG", debug);
     cv::waitKey(1);
+    #endif
 
     prev_gray = current_gray.clone();
     state = IMPACT_DETECTED;

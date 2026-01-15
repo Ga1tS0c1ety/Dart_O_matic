@@ -6,6 +6,8 @@
 #include <opencv2/core.hpp>  // pour FileStorage
 //#define OPENCV
 
+//#define DEBUG
+
 static cv::VideoCapture cap;
 static cv::Mat frame_raw;
 static cv::Mat frame_processed;
@@ -35,10 +37,12 @@ int usb_camera_init(int camera_index, int width, int height) {
     cam_height = (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT);
     double fps = cap.get(cv::CAP_PROP_FPS);
 
+    #ifdef DEBUG
     std::cout << "[USB_CAMERA] Initialisée : " << cam_width << "x" << cam_height 
-              << " @ ~" << fps << " fps en MJPG" << std::endl;
+             << " @ ~" << fps << " fps en MJPG" << std::endl;
 
     cv::namedWindow("Caméra USB - Projection 3D", cv::WINDOW_AUTOSIZE);
+    #endif
     return 0;
 }
 
@@ -57,8 +61,10 @@ int usb_camera_read(unsigned char* output_buffer, size_t buffer_size) {
 
     // Affichage
     if (display_enabled) {
+        #ifdef DEBUG
         cv::imshow("Caméra USB - Projection 3D", frame_processed);
         cv::waitKey(1);
+        #endif
     }
 
     return 0;

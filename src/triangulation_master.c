@@ -13,83 +13,119 @@ void init_cameras(CameraInfo* cams, int n_cams) {
     }
 }
 
-void handle_impact(CameraInfo* cams, int n_cams, int camera_id, double u, double v){
-    for(int i=0;i<n_cams;i++){
-        if(cams[i].camera_id == camera_id){
+void handle_impact(CameraInfo* cams, int n_cams,
+                   int camera_id, double u, double v)
+{
+    /* ==================== UPDATE ÉTAT ==================== */
+    for (int i = 0; i < n_cams; i++) {
+        if (cams[i].camera_id == camera_id) {
             cams[i].last_u = u;
             cams[i].last_v = v;
             cams[i].has_impact = 1;
+
             break;
         }
     }
 
-    //test 1
-   // cams[0].last_u = 730;
-    //cams[0].last_v = 387;
-    
 
-    //cams[1].last_u = 590;
-    //cams[1].last_v = 360;
 
-    
+
+    /* ==================== AU MOINS 2 CAMÉRAS ==================== */
     int ready = 0;
-    for(int i=0;i<n_cams;i++) if(cams[i].has_impact) ready++;
-    if(ready<n_cams) return;
+    for (int i = 0; i < n_cams; i++)
+        if (cams[i].has_impact) ready++;
 
-    ObservedPoint2D points[n_cams];
-    CameraModel cam_models[n_cams];
-    int idx=0;
-    for(int i=0;i<n_cams && idx<n_cams;i++){
-        if(cams[i].has_impact){
-            // Dé-distorsion
-            double x_corr, y_corr;
-            undistort_point_opencv(&cams[i].cam_model, cams[i].last_u, cams[i].last_v, &x_corr, &y_corr);
+    if (ready < 2)
+        return;
 
-            points[idx].u = x_corr;
-            points[idx].v = y_corr;
-            cam_models[idx] = cams[i].cam_model;
-            idx++;
+    /* ==================== MEILLEURE SOLUTION ==================== */
+    double best_err = 1e9;
+    double best_X = 0, best_Y = 0, best_Z = 0;
+    int best_i = -1, best_j = -1;
+
+    /* ==================== BOUCLE SUR LES PAIRES ==================== */
+    for (int i = 0; i < n_cams; i++) {
+        if (!cams[i].has_impact) continue;
+
+        for (int j = i + 1; j < n_cams; j++) {
+            if (!cams[j].has_impact) continue;
+
+            /* ======== TEST PERPENDICULARITÉ ======== */
+            int ori_i = (cams[i].camera_id / 2) % 2;
+            int ori_j = (cams[j].camera_id / 2) % 2;
+            if (ori_i == ori_j)
+                continue;
+
+            /* ======== DÉ-DISTORSION ======== */
+            ObservedPoint2D pts[2];
+            CameraModel models[2];
+
+            undistort_point_opencv(&cams[i].cam_model,
+                                    cams[i].last_u, cams[i].last_v,
+                                    &pts[0].u, &pts[0].v);
+
+            undistort_point_opencv(&cams[j].cam_model,
+                                    cams[j].last_u, cams[j].last_v,
+                                    &pts[1].u, &pts[1].v);
+
+            models[0] = cams[i].cam_model;
+            models[1] = cams[j].cam_model;
+
+            /* ======== TRIANGULATION 2 CAMÉRAS ======== */
+            double X, Y, Z;
+            if (triangulate_point_opencv(pts, models, 2,&X, &Y, &Z) != 0)
+                continue;
+
+            /* ======== ERREUR DE REPROJECTION ======== */
+            double err_sum = 0.0;
+
+            for (int k = 0; k < 2; k++) {
+                double u_proj, v_proj;
+                project_point_opencv_distorted(&models[k],
+                                                X, Y, Z,
+                                                &u_proj, &v_proj);
+
+                double du = u_proj - cams[(k == 0 ? i : j)].last_u;
+                double dv = v_proj - cams[(k == 0 ? i : j)].last_v;
+                err_sum += sqrt(du*du + dv*dv);
+            }
+
+            double err_mean = err_sum / 2.0;
+
+            /* ======== SÉLECTION MEILLEURE PAIRE ======== */
+            if (err_mean < best_err) {
+                best_err = err_mean;
+                best_X = X;
+                best_Y = Y;
+                best_Z = Z;
+                best_i = i;
+                best_j = j;
+            }
         }
     }
 
-    double X,Y,Z;
-    if(triangulate_point_opencv(points, cam_models, n_cams, &X,&Y,&Z)==0){
-        printf("[TRIANG] Point 3D : X=%.2f Y=%.2f Z=%.2f\n", X,Y,Z);
-        for (int i = 0; i < n_cams; i++)
-        {
-            double u_proj, v_proj;
+    /* ==================== RÉSULTAT ==================== */
+    if (best_i >= 0) {
+        printf(
+            "[TRIANG-PAIR] Best pair: Cam %d & Cam %d | err=%.2f px\n",
+            cams[best_i].camera_id,
+            cams[best_j].camera_id,
+            best_err
+        );
 
-            // Reprojection du point 3D vers l'image
-            project_point_opencv_distorted(&cams[i].cam_model,
-                                        X, Y, Z,
-                                        &u_proj, &v_proj);
+        printf(
+            "[TRIANG-PAIR] Point 3D : X=%.2f Y=%.2f Z=%.2f\n",
+            best_X, best_Y, best_Z
+        );
 
-            // Mesure observée
-            double u_obs = cams[i].last_u;
-            double v_obs = cams[i].last_v;
+        print_dartboard_polar(best_X, best_Y, best_Z);
+    } else {
+        printf("[TRIANG-PAIR] Aucune paire valide trouvée\n");
+    }
 
-            // Erreur de reprojection (pixels)
-            double du = u_proj - u_obs;
-            double dv = v_proj - v_obs;
-            double err = sqrt(du*du + dv*dv);
-
-            printf(
-                "[REPROJ] Cam %d | obs=(%.1f, %.1f) proj=(%.1f, %.1f) "
-                "err=%.2f px %s\n",
-                cams[i].camera_id,
-                u_obs, v_obs,
-                u_proj, v_proj,
-                err,
-                (err < 3.0 ? "[OK]" :
-                err < 8.0 ? "[ACCEPTABLE]" : "[MAUVAIS]")
-            );
-        }
-
-        print_dartboard_polar(X, Y, Z);
+    /* ==================== RESET ÉTAT ==================== */
+    for (int i = 0; i < n_cams; i++)
+        cams[i].has_impact = 0;
 }
-    else
-        printf("[TRIANG] Triangulation impossible (rayons parallèles)\n");
 
-    for(int i=0;i<n_cams;i++) cams[i].has_impact = 0;
-}
 

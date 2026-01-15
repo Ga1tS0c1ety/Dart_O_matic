@@ -10,6 +10,7 @@
 #include "../include/dart_detector.h"
 
 #define SOCKET_PATH "/tmp/dart_ipc.sock"
+#define SNAPSHOT_DELAY_US 100000  // 100 ms → 10 Hz par caméra
 
 typedef struct {
     int camera_id;
@@ -26,7 +27,7 @@ int main(int argc, char** argv)
 
     int camera_id = atoi(argv[1]);
 
-    // ==================== SOCKET IPC ====================
+    /* ==================== SOCKET IPC ==================== */
     int sock = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (sock < 0) {
         perror("socket");
@@ -38,46 +39,61 @@ int main(int argc, char** argv)
     addr.sun_family = AF_UNIX;
     strcpy(addr.sun_path, SOCKET_PATH);
 
-    // ==================== CAMERA ====================
-    if (usb_camera_init(camera_id, 1280, 720) != 0) {
-        printf("Erreur ouverture caméra %d\n", camera_id);
-        return -1;
-    }
+    printf("[CAM %d] Process démarré (mode snapshot)\n", camera_id);
 
-    int w, h;
-    usb_camera_get_size(&w, &h);
-    dart_detector_init(w, h);
-
-    size_t buf_size = (size_t)w * h * 3;
-    unsigned char* buffer = (unsigned char*)malloc(buf_size);
-
-    printf("[CAM %d] Prête (%dx%d)\n", camera_id, w, h);
-
-    // ==================== LOOP ====================
+    /* ==================== LOOP SNAPSHOT ==================== */
     while (1) {
 
-        if (usb_camera_read(buffer, buf_size) != 0) {
-            printf("[CAM %d] Fin du stream\n", camera_id);
+        /* --- OUVERTURE CAMERA --- */
+        if (usb_camera_init(camera_id, 1280, 720) != 0) {
+            printf("[CAM %d] Échec ouverture caméra\n", camera_id);
+            usleep(500000); // 500 ms avant retry
+            continue;
+        }
+
+        int w, h;
+        usb_camera_get_size(&w, &h);
+
+        static int detector_initialized = 0;
+        if (!detector_initialized) {
+            dart_detector_init(w, h);
+            detector_initialized = 1;
+        }
+
+        size_t buf_size = (size_t)w * h * 3;
+        unsigned char* buffer = (unsigned char*)malloc(buf_size);
+        if (!buffer) {
+            perror("malloc");
+            usb_camera_close();
             break;
         }
 
-        double u, v;
-        int detected = dart_detector_process(buffer, buf_size, &u, &v);
+        /* --- CAPTURE UNE IMAGE --- */
+        if (usb_camera_read(buffer, buf_size) == 0) {
 
-        if (detected) {
-            ImpactMessage msg;
-            msg.camera_id = camera_id;
-            msg.u = u;
-            msg.v = v;
+            double u, v;
+            int detected = dart_detector_process(buffer, buf_size, &u, &v);
 
-            sendto(sock, &msg, sizeof(msg), 0,
-                   (struct sockaddr*)&addr, sizeof(addr));
+            if (detected) {
+                ImpactMessage msg;
+                msg.camera_id = camera_id;
+                msg.u = u;
+                msg.v = v;
+
+                sendto(sock, &msg, sizeof(msg), 0,
+                       (struct sockaddr*)&addr, sizeof(addr));
+            }
         }
+
+        /* --- NETTOYAGE CAMERA --- */
+        free(buffer);
+        usb_camera_close();
+
+        /* --- DÉLAI POUR STABILITÉ USB --- */
+        usleep(SNAPSHOT_DELAY_US);
     }
 
-    free(buffer);
     dart_detector_close();
-    usb_camera_close();
     close(sock);
     return 0;
 }
