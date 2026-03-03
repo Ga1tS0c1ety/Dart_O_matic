@@ -23,6 +23,9 @@ int dart_detector_init(int width, int height);
  */
 int dart_detector_process(const unsigned char* input_frame, size_t frame_size,
                           double* impact_u, double* impact_v);
+                          
+void dart_detector_set_reference(const unsigned char* frame,
+                                 size_t frame_size);
 
 /**
  * @brief Ferme le détecteur (libère la mémoire)

@@ -1,5 +1,6 @@
 #include "triangulation.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <float.h>

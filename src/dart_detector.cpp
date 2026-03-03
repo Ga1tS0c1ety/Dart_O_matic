@@ -12,7 +12,7 @@ static int img_width = 0;
 static int img_height = 0;
 
 static cv::Mat prev_gray, current_gray;
-static bool first_frame = true;
+
 
 // ==================== ÉTAT DU SYSTÈME ====================
 enum DetectorState {
@@ -36,11 +36,23 @@ int dart_detector_init(int width, int height)
     img_width = width;
     img_height = height;
 
+    #ifdef DEBUG
     cv::namedWindow("DIFF", cv::WINDOW_AUTOSIZE);
     cv::namedWindow("DEBUG", cv::WINDOW_AUTOSIZE);
+    #endif
 
     std::cout << "[DART] Detector initialized (difference + central filtering)" << std::endl;
     return 0;
+}
+
+void dart_detector_set_reference(const unsigned char* frame,
+                                 size_t frame_size)
+{
+    if (!frame || frame_size < (size_t)img_width * img_height * 3)
+        return;
+
+    cv::Mat img(img_height, img_width, CV_8UC3, (void*)frame);
+    cv::cvtColor(img, prev_gray, cv::COLOR_BGR2GRAY);
 }
 
 // =========================================================
@@ -56,14 +68,8 @@ int dart_detector_process(const unsigned char* input_frame,
     cv::Mat frame(img_height, img_width, CV_8UC3, (void*)input_frame);
     cv::cvtColor(frame, current_gray, cv::COLOR_BGR2GRAY);
 
-    if (first_frame) {
-        current_gray.copyTo(prev_gray);
-        first_frame = false;
-        return 0;
-    }
-
     // ==================== DIFF ====================
-        // ==================== ÉGALISATION LOCALE ====================
+        // ==================== GALISATION LOCALE ====================
     cv::Mat current_eq, prev_eq;
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(8,8));
     clahe->apply(current_gray, current_eq);
@@ -95,7 +101,7 @@ cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(diff_central, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
     if (contours.empty()) {
-        prev_gray = current_gray.clone();
+      //  prev_gray = current_gray.clone();
         return 0;
     }
 
@@ -111,8 +117,8 @@ cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
     float aspect_ratio = (float)bbox.height / (float)bbox.width;
 
     if (aspect_ratio < 1.5f) {
-        // contour trop horizontal → rejet
-        prev_gray = current_gray.clone();
+        // contour trop horizontal ? rejet
+        //prev_gray = current_gray.clone();
         return 0;
     }
 
@@ -127,9 +133,9 @@ cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
     cv::Point2f line_pt(line[2], line[3]);
     if (line_dir.y < 0) line_dir = -line_dir;
 
-    // si la droite est trop horizontale → invalide
+    // si la droite est trop horizontale ? invalide
 if (std::abs(line_dir.y) < std::abs(line_dir.x)) {
-    prev_gray = current_gray.clone();
+    //prev_gray = current_gray.clone();
     return 0;
 }
 
@@ -160,7 +166,7 @@ if (std::abs(line_dir.y) < std::abs(line_dir.x)) {
     std::vector<cv::Point> points;
     cv::findNonZero(final_mask, points);
     if (points.empty()) {
-        prev_gray = current_gray.clone();
+      //  prev_gray = current_gray.clone();
         return 0;
     }
 
@@ -169,7 +175,7 @@ cv::Point impact_pt;
 
 for (const auto& p : points) {
     cv::Point2f v(p.x - line_pt.x, p.y - line_pt.y);
-    float proj = v.dot(line_dir);  // projection sur l’axe de la fléchette
+    float proj = v.dot(line_dir);  // projection sur l?axe de la flchette
 
     if (proj > max_proj) {
         max_proj = proj;

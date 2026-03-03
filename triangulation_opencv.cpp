@@ -34,22 +34,6 @@ static void reprojection_error(const ObservedPoint2D* points,
     }
 }
 
-
-static void reprojection_error_undist(const ObservedPoint2D* points,
-                                       const CameraModel* cams,
-                                       int n,
-                                       double X, double Y, double Z,
-                                       double* err)
-{
-    int k = 0;
-    for (int i = 0; i < n; i++) {
-        double u_proj, v_proj;
-        project_point_no_distortion(&cams[i], X, Y, Z, &u_proj, &v_proj);
-        err[k++] = points[i].u - u_proj;
-        err[k++] = points[i].v - v_proj;
-    }
-}
-
 static double l2_norm(const double* e, int n)
 {
     double s = 0.0;
@@ -95,113 +79,124 @@ int triangulate_point_opencv(const ObservedPoint2D* points,
                              double* X, double* Y, double* Z)
 {
     if (n < 2) {
-        printf("[TRIANG] Error: at least 2 cameras required\n");
+        printf("[TRIANG] Erreur : au moins 2 cameras necessaires\n");
         return -1;
     }
 
-    printf("\n[TRIANG][DBG] ===== TRIANGULATION (%d cameras) =====\n", n);
+    printf("\n[TRIANG] Triangulation OpenCV avec %d cameras\n", n);
 
-    /* ---------- 1. Construction des matrices de projection ---------- */
     std::vector<cv::Mat> projMats;
-    std::vector<cv::Point2d> imgPts;
+    std::vector<cv::Point2d> imgPtsUndistorted;
 
     for (int i = 0; i < n; ++i) {
-    double K_data[9] = {
-        cams[i].K.fx, cams[i].K.s,  cams[i].K.cx,
-        0.0,          cams[i].K.fy, cams[i].K.cy,
-        0.0,          0.0,          1.0
-    };
-    double R_data[9] = {
-        cams[i].RT.R[0], cams[i].RT.R[1], cams[i].RT.R[2],
-        cams[i].RT.R[3], cams[i].RT.R[4], cams[i].RT.R[5],
-        cams[i].RT.R[6], cams[i].RT.R[7], cams[i].RT.R[8]
-    };
-    double t_data[3] = { cams[i].RT.t[0], cams[i].RT.t[1], cams[i].RT.t[2] };
+        // Intrinsques
+        cv::Mat K = (cv::Mat_<double>(3,3) <<
+            cams[i].K.fx, cams[i].K.s, cams[i].K.cx,
+            0.0,          cams[i].K.fy, cams[i].K.cy,
+            0.0,          0.0,          1.0);
 
-    cv::Mat K(3, 3, CV_64F, K_data);
-    cv::Mat R(3, 3, CV_64F, R_data);
-    cv::Mat t(3, 1, CV_64F, t_data);
+        // Extrinsques : monde -> camera (depuis load_extrinsics_yaml)
+        cv::Mat R(3, 3, CV_64F, (void*)cams[i].RT.R);
+        cv::Mat t(3, 1, CV_64F, (void*)cams[i].RT.t);
 
-    cv::Mat Rt;
-    cv::hconcat(R, t, Rt);
-    projMats.push_back(K * Rt);
+        cv::Mat Rt;
+        cv::hconcat(R, t, Rt);
 
-    double u_undist, v_undist;
-    undistort_point_opencv(&cams[i], points[i].u, points[i].v,
-                           &u_undist, &v_undist);
-    imgPts.emplace_back(u_undist, v_undist);
+        projMats.push_back(K * Rt);
 
-    printf("[TRIANG][DBG] Cam %d\n", i);
-    printf("[TRIANG][DBG] K=\n");
-    std::cout << K << std::endl;
-    printf("[TRIANG][DBG] RT=\n");
-    std::cout << Rt << std::endl;
-    printf("[TRIANG][DBG] point obs = (%.3f %.3f)\n", points[i].u, points[i].v);
-}
+        // Point observe -> undistort (obligatoire !)
+        double u_undist, v_undist;
+        undistort_point_opencv(&cams[i], points[i].u, points[i].v, &u_undist, &v_undist);
+        imgPtsUndistorted.emplace_back(u_undist, v_undist);
 
-    /* ---------- 2. Initialisation du point 3D ---------- */
-    cv::Mat Xh(4,1,CV_64F);
-
-    if (n == 2) {
-        cv::Mat p1 = (cv::Mat_<double>(2,1) << imgPts[0].x, imgPts[0].y);
-        cv::Mat p2 = (cv::Mat_<double>(2,1) << imgPts[1].x, imgPts[1].y);
-        cv::triangulatePoints(projMats[0], projMats[1], p1, p2, Xh);
-    } else {
-        cv::Mat A(2 * n, 4, CV_64F, cv::Scalar(0.0));
-        for (int i = 0; i < n; ++i) {
-            double u = imgPts[i].x;
-            double v = imgPts[i].y;
-            cv::Mat row0 = projMats[i].row(0);
-            cv::Mat row1 = projMats[i].row(1);
-            cv::Mat row2 = projMats[i].row(2);
-            A.row(2*i)     = u * row2 - row0;
-            A.row(2*i + 1) = v * row2 - row1;
-        }
-        cv::SVD svd(A, cv::SVD::FULL_UV);
-        Xh = svd.vt.row(svd.vt.rows - 1).t();
+        // Debug
+        cv::Mat pos = -R.t() * t;
+        printf("[TRIANG] Cam %d - pos monde : %.3f %.3f %.3f\n", 
+               i, pos.at<double>(0), pos.at<double>(1), pos.at<double>(2));
+        printf("[TRIANG] Cam %d - point original : (%.1f, %.1f) -> undist : (%.1f, %.1f)\n", 
+               i, points[i].u, points[i].v, u_undist, v_undist);
     }
 
-    double w = Xh.at<double>(3, 0);
-    if (std::abs(w) < 1e-12) {
-        printf("[TRIANG] Error: w ~ 0\n");
+    // Triangulation
+    cv::Mat points4D;
+
+    if (n == 2) {
+        cv::Mat p1 = (cv::Mat_<double>(2,1) << imgPtsUndistorted[0].x, imgPtsUndistorted[0].y);
+        cv::Mat p2 = (cv::Mat_<double>(2,1) << imgPtsUndistorted[1].x, imgPtsUndistorted[1].y);
+        cv::triangulatePoints(projMats[0], projMats[1], p1, p2, points4D);
+    } else {
+        cv::Mat A(2*n, 4, CV_64F);
+        for (int i = 0; i < n; ++i) {
+            cv::Mat proj = projMats[i];
+            double u = imgPtsUndistorted[i].x;
+            double v = imgPtsUndistorted[i].y;
+            A.row(2*i)     = u * proj.row(2) - proj.row(0);
+            A.row(2*i + 1) = v * proj.row(2) - proj.row(1);
+        }
+        cv::SVD svd(A, cv::SVD::FULL_UV);
+        points4D = svd.vt.row(3).t();
+    }
+
+    double w = points4D.at<double>(3);
+    if (std::abs(w) < 1e-8) {
+        printf("[TRIANG] w trop petit\n");
         return -1;
     }
 
-    double x[3] = {
-        Xh.at<double>(0, 0) / w,
-        Xh.at<double>(1, 0) / w,
-        Xh.at<double>(2, 0) / w
-    };
+    double x = points4D.at<double>(0) / w;
+    double y = points4D.at<double>(1) / w;
+    double z = points4D.at<double>(2) / w;
 
-    printf("[TRIANG][DBG] Point 3D initial = (%.4f %.4f %.4f)\n", x[0], x[1], x[2]);
+    printf("[TRIANG] Point 3D : X=%.3f Y=%.3f Z=%.3f\n", x, y, z);
 
-    /* ---------- 3. Undistort les points pour le LM ---------- */
-    ObservedPoint2D points_undist[n];
-    for (int i = 0; i < n; i++) {
-        undistort_point_opencv(&cams[i], points[i].u, points[i].v,
-                               &points_undist[i].u, &points_undist[i].v);
-    }
-
-
-    /* ---------- 4. Erreur initiale ---------- */
+    // Erreur reprojection (sur points undistorted pour info)
     int m = 2 * n;
     double err[m];
-    reprojection_error_undist(points_undist, cams, n, x[0], x[1], x[2], err);
-    double prev = l2_norm(err, m);
-    printf("[TRIANG][DBG] Erreur reprojection initiale = %.3f px\n", prev);
+    reprojection_error(points, cams, n, x, y, z, err);  // attention : reproj sur points distordus !
+    double reproj_err = l2_norm(err, m) / n;
 
-    /* ---------- 6. Erreur finale sur points distordus ---------- */
-    reprojection_error(points, cams, n, x[0], x[1], x[2], err);
-    double final_err = l2_norm(err, m) / n;
-    printf("[TRIANG][DBG] Point 3D final = (%.4f %.4f %.4f)\n", x[0], x[1], x[2]);
-    printf("[TRIANG][DBG] Erreur reprojection finale = %.3f px\n", final_err);
+    printf("[TRIANG] Erreur reprojection moyenne : %.3f px\n", reproj_err);
 
-    *X = x[0];
-    *Y = x[1];
-    *Z = x[2];
+    *X = x;
+    *Y = y;
+    *Z = z;
 
     return 0;
 }
+
+
+/* ========================================================= */
+/* Correction config                                         */
+/* ========================================================= */
+
+
+void load_correction(TriangCorrection* c) {
+    c->offset_X = c->offset_Y = c->offset_Z = 0.0;
+    c->scale_X  = c->scale_Y  = c->scale_Z  = 1.0;
+
+    FILE* f = fopen(CFG_FILE, "r");
+    if (!f) return;
+    fscanf(f, "offset_X=%lf\n", &c->offset_X);
+    fscanf(f, "offset_Y=%lf\n", &c->offset_Y);
+    fscanf(f, "offset_Z=%lf\n", &c->offset_Z);
+    fscanf(f, "scale_X=%lf\n",  &c->scale_X);
+    fscanf(f, "scale_Y=%lf\n",  &c->scale_Y);
+    fscanf(f, "scale_Z=%lf\n",  &c->scale_Z);
+    fclose(f);
+}
+
+void save_correction(TriangCorrection* c) {
+    FILE* f = fopen(CFG_FILE, "w");
+    if (!f) { printf("[CORRECTION] Cannot write %s\n", CFG_FILE); return; }
+    fprintf(f, "offset_X=%.4f\n", c->offset_X);
+    fprintf(f, "offset_Y=%.4f\n", c->offset_Y);
+    fprintf(f, "offset_Z=%.4f\n", c->offset_Z);
+    fprintf(f, "scale_X=%.4f\n",  c->scale_X);
+    fprintf(f, "scale_Y=%.4f\n",  c->scale_Y);
+    fprintf(f, "scale_Z=%.4f\n",  c->scale_Z);
+    fclose(f);
+}
+
 
 // Config - adjust these values
 #define IMG_SIZE              900
@@ -214,11 +209,60 @@ int triangulate_point_opencv(const ObservedPoint2D* points,
 #define BULL_OUTER_MM         31.8              // outer bull (25 points)
 #define BULL_INNER_MM         12.7              // inner bullseye (50 points)
 
+
+
+
 static cv::Mat dart_img;
+static cv::Point2d g_triang_result = {0, 0};
+static bool        g_clicked       = false;
+
+static void on_mouse(int event, int x, int y, int flags, void* userdata)
+{
+    if (event != cv::EVENT_LBUTTONDOWN) return;
+
+    // Pixel -> mm
+    double click_X =  (x - CENTER) / (double)SCALE;
+    double click_Y = -(y - CENTER) / (double)SCALE;
+
+    double off_x = click_X - g_triang_result.x;
+    double off_y = click_Y - g_triang_result.y;
+
+    printf("[CORRECTION] Click : X=%.1f Y=%.1f mm\n", click_X, click_Y);
+    printf("[CORRECTION] Offset computed : dX=%.1f dY=%.1f mm\n", off_x, off_y);
+
+    // Load existing correction
+    TriangCorrection corr;
+    load_correction(&corr);
+
+    // Accumulate
+    corr.offset_X += off_x;
+    corr.offset_Y += off_y;
+
+    // Save
+    save_correction(&corr);
+    printf("[CORRECTION] Saved : offset_X=%.4f offset_Y=%.4f\n",
+           corr.offset_X, corr.offset_Y);
+
+    // Draw clicked point in green
+    cv::circle(dart_img, cv::Point(x, y), 6,  cv::Scalar(0,255,0), -1, cv::LINE_AA);
+    cv::circle(dart_img, cv::Point(x, y), 10, cv::Scalar(0,255,0), 2,  cv::LINE_AA);
+
+    char lbl[64];
+    snprintf(lbl, sizeof(lbl), "dX=%.1f dY=%.1f mm", off_x, off_y);
+    cv::putText(dart_img, lbl, cv::Point(15, 100),
+                cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0,255,0), 2);
+
+    cv::imshow("Dartboard - Top View", dart_img);
+    g_clicked = true;
+}
 
 
 void render_dartboard_topview(double X_mm, double Y_mm, double Z_mm)
 {
+    // Store triangulation result for mouse callback
+    g_triang_result = {X_mm, Y_mm};
+    g_clicked = false;
+    
     // Create image only once
     if (dart_img.empty()) {
         dart_img = cv::Mat(IMG_SIZE, IMG_SIZE, CV_8UC3);
@@ -324,7 +368,18 @@ void render_dartboard_topview(double X_mm, double Y_mm, double Z_mm)
                     2);
     }
 
-    // Show and wait (as you wanted)
+        static bool window_created = false;
+    if (!window_created) {
+        cv::namedWindow("Dartboard - Top View", cv::WINDOW_AUTOSIZE);
+        cv::setMouseCallback("Dartboard - Top View", on_mouse, nullptr);
+        window_created = true;
+    }
     cv::imshow("Dartboard - Top View", dart_img);
-    cv::waitKey(1);
+    
+    // Attend le clic (ou 's' pour skipper)
+    printf("[CORRECTION] Cliquez sur la vraie position, ou appuyez sur 's' pour skipper\n");
+    while (!g_clicked) {
+        int key = cv::waitKey(50);
+        if (key == 's' || key == 'S') break;
+    }
 }

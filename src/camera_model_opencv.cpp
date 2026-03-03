@@ -137,6 +137,38 @@ void undistort_point_opencv(const CameraModel* cam, double u_in, double v_in,
     *v_out = pts_out[0].y;
 }
 
+void project_point_no_distortion(const CameraModel* cam,
+                                  double X, double Y, double Z,
+                                  double* u, double* v)
+{
+    double K_data[9] = {
+        cam->K.fx, cam->K.s,  cam->K.cx,
+        0,         cam->K.fy, cam->K.cy,
+        0,         0,         1
+    };
+    double R_data[9] = {
+        cam->RT.R[0], cam->RT.R[1], cam->RT.R[2],
+        cam->RT.R[3], cam->RT.R[4], cam->RT.R[5],
+        cam->RT.R[6], cam->RT.R[7], cam->RT.R[8]
+    };
+    double t_data[3] = { cam->RT.t[0], cam->RT.t[1], cam->RT.t[2] };
+
+    cv::Mat K(3, 3, CV_64F, K_data);
+    cv::Mat R(3, 3, CV_64F, R_data);
+    cv::Mat t(3, 1, CV_64F, t_data);
+
+    cv::Mat rvec;
+    cv::Rodrigues(R, rvec);
+
+    cv::Mat distCoeffs = cv::Mat::zeros(1, 5, CV_64F);
+
+    std::vector<cv::Point3d> pts3D = { cv::Point3d(X, Y, Z) };
+    std::vector<cv::Point2d> pts2D;
+    cv::projectPoints(pts3D, rvec, t, K, distCoeffs, pts2D);
+    *u = pts2D[0].x;
+    *v = pts2D[0].y;
+}
+
 int load_extrinsics_yaml(const char* filename, CameraModel* cam)
 {
     cv::FileStorage fs(filename, cv::FileStorage::READ);
@@ -155,6 +187,7 @@ int load_extrinsics_yaml(const char* filename, CameraModel* cam)
         return -1;
     }
 
+    
     /* Copie R (row-major) */
     for (int i = 0; i < 9; ++i)
         cam->RT.R[i] = R.at<double>(i / 3, i % 3);
@@ -166,3 +199,4 @@ int load_extrinsics_yaml(const char* filename, CameraModel* cam)
 
     return 0;
 }
+

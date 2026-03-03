@@ -40,6 +40,10 @@ void project_point(const CameraModel* cam,
 void project_point_distorted(const CameraModel* cam,
                              double X, double Y, double Z,
                              double* u, double* v);
+                             
+void project_point_no_distortion(const CameraModel* cam,
+                                         double X, double Y, double Z,
+                                         double* u, double* v);
 
 void project_point_opencv(const CameraModel* cam,
                           double X, double Y, double Z,

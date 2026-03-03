@@ -5,10 +5,10 @@
 extern "C" {
 #endif
 
-int live_calibrate_extrinsics(int camera_index,
-                              int width, int height,
-                              const char* intrinsic_file,
-                              const char* output_file);
+int live_calibrate_extrinsics(int cam_id,
+                              int w,int h,
+                              const char* intrinsic,
+                              const char* output);
 
 #ifdef __cplusplus
 }

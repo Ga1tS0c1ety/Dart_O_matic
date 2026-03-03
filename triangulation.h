@@ -13,6 +13,13 @@ typedef struct {
     double u, v;
 } ObservedPoint2D;
 
+#define CFG_FILE "correction.cfg"
+
+typedef struct {
+    double offset_X, offset_Y, offset_Z;
+    double scale_X,  scale_Y,  scale_Z;
+} TriangCorrection;
+
 // Triangule un point 3D à partir de N observations
 // points : tableau d'ObservedPoint2D
 // cams   : tableau de CameraModel correspondant aux camera_id
@@ -40,6 +47,9 @@ int triangulate_point_fixed_z(const ObservedPoint2D* points,
                              double* X, double* Y, double* Z);
                              
 void render_dartboard_topview(double X_mm, double Y_mm, double Z_mm);
+
+void load_correction(TriangCorrection* c);
+void save_correction(TriangCorrection* c);
 
 #ifdef __cplusplus
 }

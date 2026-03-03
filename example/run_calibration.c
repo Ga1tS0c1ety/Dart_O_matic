@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    int camera_id = atoi(argv[1]);
+    int camera_id = atoi(argv[1]); 
     if (camera_id < 0) {
         printf("ID caméra invalide.\n");
         return -1;

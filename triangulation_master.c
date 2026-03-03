@@ -105,6 +105,14 @@ void handle_impact(CameraInfo* cams, int n_cams,
 
     /* ==================== RÉSULTAT ==================== */
     if (best_i >= 0) {
+        
+                /* ======== APPLY CORRECTION ======== */
+        TriangCorrection corr;
+        load_correction(&corr);
+        best_X = best_X * corr.scale_X + corr.offset_X;
+        best_Y = best_Y * corr.scale_Y + corr.offset_Y;
+        best_Z = best_Z * corr.scale_Z + corr.offset_Z;
+        
         printf(
             "[TRIANG-PAIR] Best pair: Cam %d & Cam %d | err=%.2f px\n",
             cams[best_i].camera_id,
@@ -116,10 +124,6 @@ void handle_impact(CameraInfo* cams, int n_cams,
             "[TRIANG-PAIR] Point 3D : X=%.2f Y=%.2f Z=%.2f\n",
             best_X, best_Y, best_Z
         );
-        
-        best_X *= 1000.0;
-        best_Y *= 1000.0;
-        best_Z *= 1000.0;
 
         print_dartboard_polar(best_X, best_Y, best_Z);
         render_dartboard_topview(best_X, best_Y,best_Z);

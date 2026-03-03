@@ -8,8 +8,8 @@
 #define MASTER_EXEC "./bin/cam_master"
 
 int main() {
-    // Liste des IDs de caméra à lancer (modifie-les toi-même)
-    int camera_ids[] = {2, 4, 6 , 8};  
+    // Liste des IDs de camra  lancer (modifie-les toi-mme)
+    int camera_ids[] = {0, 2, 4 , 6};  
     int cam_count = sizeof(camera_ids) / sizeof(camera_ids[0]);
 
     pid_t pids[cam_count + 1]; // +1 pour master
@@ -25,7 +25,7 @@ int main() {
         pids[pid_index++] = pid;
     }
 
-    // Lancer cam_process pour chaque caméra
+    // Lancer cam_process pour chaque camra
     for (int i = 0; i < cam_count; i++) {
         pid = fork();
         if (pid == 0) {
@@ -45,10 +45,10 @@ int main() {
     for (int i = 0; i < pid_index; i++) {
         int status;
         waitpid(pids[i], &status, 0);
-        printf("[SUPERVISEUR] Processus %d terminé avec code %d\n",
+        printf("[SUPERVISEUR] Processus %d termin avec code %d\n",
                pids[i], WEXITSTATUS(status));
     }
 
-    printf("[SUPERVISEUR] Tous les processus terminés.\n");
+    printf("[SUPERVISEUR] Tous les processus termins.\n");
     return 0;
 }

@@ -4,6 +4,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <opencv2/core.hpp>  // pour FileStorage
+#include <unistd.h>
 //#define OPENCV
 
 //#define DEBUG
@@ -15,34 +16,59 @@ static int cam_width = 0;
 static int cam_height = 0;
 static bool display_enabled = true;  // on affiche par défaut dans les exemples
 
-int usb_camera_init(int camera_index, int width, int height) {
-    if (!cap.open(camera_index, cv::CAP_V4L2)) {  // garde V4L2 pour stabilité
-        std::cerr << "[USB_CAMERA] Erreur ouverture caméra index " << camera_index << std::endl;
+int usb_camera_init(int camera_index, int width, int height)
+{
+    // Petit décalage pour éviter négociation USB simultanée
+    usleep(500000 * camera_index);
+
+    if (!cap.open(camera_index, cv::CAP_V4L2)) {
+        std::cerr << "[USB_CAMERA] Erreur ouverture caméra index "
+                  << camera_index << std::endl;
         return -1;
     }
 
-    // === FORCE MJPG EN PREMIER (très important) ===
-    cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
+    // === FORCER MJPG ===
+    cap.set(cv::CAP_PROP_FOURCC,
+            cv::VideoWriter::fourcc('M','J','P','G'));
 
-    // Ensuite la résolution
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, width);
+    // === FORCER RESOLUTION ===
+    cap.set(cv::CAP_PROP_FRAME_WIDTH,  width);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, height);
 
-    // Bonus : buffer minimal + FPS (optionnel)
-    cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
-    // cap.set(cv::CAP_PROP_FPS, 30);  // parfois ignoré, mais tu peux tester
+    // === FORCER FPS (important en MJPG 720p) ===
+    cap.set(cv::CAP_PROP_FPS, 30);
 
-    // Récupère les valeurs réelles
-    cam_width = (int)cap.get(cv::CAP_PROP_FRAME_WIDTH);
+    // === BUFFER : NE PAS METTRE 1 EN MULTI-CAM ===
+    // 3 ou 4 = bon compromis latence / stabilité
+    cap.set(cv::CAP_PROP_BUFFERSIZE, 4);
+
+    // === Vérification réelle du FOURCC ===
+    int fourcc = (int)cap.get(cv::CAP_PROP_FOURCC);
+    char fcc[] = {
+        (char)(fourcc & 0xFF),
+        (char)((fourcc >> 8) & 0xFF),
+        (char)((fourcc >> 16) & 0xFF),
+        (char)((fourcc >> 24) & 0xFF),
+        0
+    };
+
+    // === Récupération valeurs réelles ===
+    cam_width  = (int)cap.get(cv::CAP_PROP_FRAME_WIDTH);
     cam_height = (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT);
     double fps = cap.get(cv::CAP_PROP_FPS);
 
-    #ifdef DEBUG
-    std::cout << "[USB_CAMERA] Initialisée : " << cam_width << "x" << cam_height 
-             << " @ ~" << fps << " fps en MJPG" << std::endl;
+    std::cout << "[USB_CAMERA] Cam " << camera_index
+              << " | FOURCC: " << fcc
+              << " | " << cam_width << "x" << cam_height
+              << " @ ~" << fps << " fps"
+              << std::endl;
 
-    cv::namedWindow("Caméra USB - Projection 3D", cv::WINDOW_AUTOSIZE);
-    #endif
+    // Vérification critique
+    if (std::string(fcc) != "MJPG") {
+        std::cerr << "[USB_CAMERA] WARNING: MJPG non appliqué!"
+                  << std::endl;
+    }
+
     return 0;
 }
 

@@ -10,7 +10,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    int camera_id = atoi(argv[1]);
+    int camera_id = atoi(argv[1]); 
 
     int width, height;
 
