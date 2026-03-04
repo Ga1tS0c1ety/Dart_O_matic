@@ -116,6 +116,16 @@ int main(void) {
         uint64_t t = now_us();
         rt_orch_tick(&orch, t);
 
+        /* DEBUG : vérifier que la fenêtre expire bien */
+        static uint64_t last = 0;
+        if (t - last > 50 * 1000) { // toutes les 50ms
+            last = t;
+            printf("[RT][DBG] state=%d impact=%llu now=%llu\n",
+                rt_orch_state(&orch),
+                (unsigned long long)rt_orch_current_impact_id(&orch),
+                (unsigned long long)t);
+        }
+
         /* ==== MPU event ==== */
         if (r > 0 && FD_ISSET(mfd, &rfds)) {
             /* vider le pipe (consommer tous les impacts en attente) */
