@@ -161,9 +161,12 @@ int main(void) {
                 /* push dans orchestrateur -> aggregator */
                 rt_orch_on_observation(&orch, &obs);
 
-                printf("[RT] obs cam_id=%d impact_id=%llu u=%.1f v=%.1f conf=%.2f\n",
-                       obs.cam_id, (unsigned long long)obs.impact_id,
-                       obs.u, obs.v, obs.conf);
+                printf("[RT] obs cam_id=%d impact_id=%llu ts_us=%llu u=%.1f v=%.1f conf=%.2f\n",
+       obs.cam_id, (unsigned long long)obs.impact_id,
+       (unsigned long long)obs.ts_us,
+       obs.u, obs.v, obs.conf);
+
+                
             }
         }
 
