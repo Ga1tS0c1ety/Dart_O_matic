@@ -21,10 +21,11 @@
 #define RT_MASTER_SOCKET  "/tmp/dart_master.sock"
 
 /* now_us */
+#include <time.h>
 static uint64_t now_us(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)tv.tv_sec * 1000000ULL + (uint64_t)tv.tv_usec;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)(ts.tv_nsec / 1000ULL);
 }
 
 int main(void) {
