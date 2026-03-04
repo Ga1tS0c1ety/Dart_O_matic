@@ -171,6 +171,9 @@ int main(void) {
             }
         }
 
+        printf("[RT][DBG] state=%d current_impact_id=%llu\n",
+       rt_orch_state(&orch),
+       (unsigned long long)rt_orch_current_impact_id(&orch));
         /* ==== Bundle prêt ? ==== */
         ImpactBundle b;
         if (rt_orch_poll_bundle(&orch, &b)) {

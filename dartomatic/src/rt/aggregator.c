@@ -78,6 +78,10 @@ void aggregator_tick(Aggregator* ag, uint64_t now_us) {
     if (!ag->active) return;
 
     if (now_us >= ag->deadline_us) {
+                    printf("[AGG][DBG] EXPIRE now=%llu deadline=%llu impact_id=%llu\n",
+                   (unsigned long long)now_us,
+                   (unsigned long long)ag->deadline_us,
+                   (unsigned long long)ag->impact_id);
         ag->expired = 1;
     }
 }
@@ -95,6 +99,14 @@ int aggregator_poll_ready(Aggregator* ag, ImpactBundle* out) {
     if (!ag->active) return 0;
 
     int c = count_obs(ag);
+
+
+    printf("[AGG][DBG] active=1 impact_id=%llu expired=%d c=%d/%d min=%d deadline=%llu\n",
+           (unsigned long long)ag->impact_id,
+           ag->expired,
+           c, ag->p.n_cams,
+           ag->p.min_cams,
+           (unsigned long long)ag->deadline_us);
 
     /*
      * Stratégie V1 :

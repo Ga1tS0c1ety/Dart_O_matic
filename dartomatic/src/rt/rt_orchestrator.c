@@ -76,30 +76,14 @@ int rt_orch_on_mpu_impact(RtOrchestrator* o, uint64_t now_us) {
 void rt_orch_on_observation(RtOrchestrator* o, const RtObservationMsg* msg) {
     if (!o || !msg) return;
 
-    if (o->state != ORCH_ARMED) {
-        printf("[RT][DBG] IGNORE obs: state=%d (not ARMED) cam_id=%d impact_id=%llu\n",
-               o->state, msg->cam_id, (unsigned long long)msg->impact_id);
-        return;
-    }
+    /* On ne collecte que si un impact est en cours */
+    if (o->state != ORCH_ARMED) return;
 
     int cam_index = cam_id_to_index(o, msg->cam_id);
     if (cam_index < 0) {
-        printf("[RT][DBG] IGNORE obs: unknown cam_id=%d (expected one of configured cams)\n",
-               msg->cam_id);
+        /* cam inconnue -> ignore */
         return;
     }
-
-    if (msg->impact_id != o->current_impact_id) {
-        printf("[RT][DBG] IGNORE obs: impact mismatch msg=%llu current=%llu cam_id=%d\n",
-               (unsigned long long)msg->impact_id,
-               (unsigned long long)o->current_impact_id,
-               msg->cam_id);
-        return;
-    }
-
-    printf("[RT][DBG] ACCEPT obs: cam_id=%d cam_index=%d impact_id=%llu u=%.1f v=%.1f conf=%.2f\n",
-           msg->cam_id, cam_index, (unsigned long long)msg->impact_id,
-           msg->u, msg->v, msg->conf);
 
     aggregator_on_observation(&o->ag, cam_index, msg);
 }
