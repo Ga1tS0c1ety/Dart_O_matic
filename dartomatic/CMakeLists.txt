@@ -61,14 +61,40 @@ add_executable(rt_orch_sim
     src/rt/aggregator.c
 )
 
+add_library(vision_geom
+    src/vision/camera_model_opencv.cpp
+    src/vision/triangulation_solve_opencv.cpp
+)
+
+target_include_directories(vision_geom PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(vision_geom
+    ${OpenCV_LIBS}
+)
+
 add_executable(rt_main
     src/rt/main_rt.c
     src/rt/rt_orchestrator.c
     src/rt/aggregator.c
     src/rt/mpu_adapter.c
     src/rt/mpu6050_thread_adapted.c
+
+    src/rt/triangulation_opencv.cpp
 )
-target_link_libraries(rt_main pthread m)
+
+target_include_directories(rt_main PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(rt_main
+    pthread
+    m
+    vision_geom
+)
 
 # ===== cam_process (C++ + OpenCV + dart_detector) =====
 add_executable(cam_process

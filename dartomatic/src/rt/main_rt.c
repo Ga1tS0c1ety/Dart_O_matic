@@ -2,6 +2,8 @@
 #include "rt/mpu_adapter.h"
 #include "rt/mpu6050_thread.h"
 #include "ipc/rt_ipc.h"
+#include "rt/triangulation.h"
+#include "vision/camera_model.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -41,6 +43,16 @@ int main(void) {
 
     if (rt_orch_init(&orch, op) != 0) {
         fprintf(stderr, "[RT] rt_orch_init failed\n");
+        return 1;
+    }
+
+        /* === Chargement modèles caméra pour triangulation === */
+    CameraModel cam_models[8]; /* assez grand */
+    const char* intr_pat = "data/cam_param/camera_params_%d.yaml";
+    const char* extr_pat = "data/cam_param/camera_extrinsics_%d.yaml";
+
+    if (triangulation_load_cameras(cam_models, op.cam_ids, op.n_cams, intr_pat, extr_pat) != 0) {
+        fprintf(stderr, "[RT] ERREUR: impossible de charger les paramètres caméras (intr/extr)\n");
         return 1;
     }
 
@@ -161,15 +173,28 @@ int main(void) {
             printf("[RT] BUNDLE READY impact_id=%llu obs=%d\n",
                    (unsigned long long)b.impact_id, b.obs_count);
 
-            for (int i = 0; i < b.obs_count; i++) {
-                printf("   - cam_index=%d u=%.1f v=%.1f conf=%.2f\n",
-                       b.obs[i].cam_index, b.obs[i].u, b.obs[i].v, b.obs[i].conf);
-            }
+            TriangulationResult tr;
+            int rc = triangulation_from_bundle(&b, cam_models, op.cam_ids, op.n_cams, &tr);
 
-            /*
-             * Étape suivante :
-             *   triangulation(b) -> (x,y,z) -> bridge AppBus evt/impact/triangulated
-             */
+            if (rc == 0) {
+                double X_mm = tr.X * 1000.0;
+                double Y_mm = tr.Y * 1000.0;
+                double Z_mm = tr.Z * 1000.0;
+
+                printf("[RT][TRIANG] impact_id=%llu  X=%.1fmm Y=%.1fmm Z=%.1fmm  err=%.2fpx  pair=(%d,%d)\n",
+                       (unsigned long long)b.impact_id,
+                       X_mm, Y_mm, Z_mm,
+                       tr.reproj_err_px,
+                       op.cam_ids[tr.cam_i], op.cam_ids[tr.cam_j]);
+
+                /*
+                 * Prochaine étape :
+                 *   -> publier evt/impact/triangulated sur AppBus
+                 */
+            } else {
+                printf("[RT][TRIANG] impact_id=%llu  ECHEC rc=%d (pas de paire valide)\n",
+                       (unsigned long long)b.impact_id, rc);
+            }
         }
     }
 
