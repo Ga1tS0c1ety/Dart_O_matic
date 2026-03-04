@@ -1,10 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
-project(dartomatic C)
+project(dartomatic C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 include_directories(${CMAKE_SOURCE_DIR}/include)
+
+find_package(OpenCV REQUIRED)
 
 add_library(appbus_client
     src/appbus/client.c
@@ -63,8 +68,20 @@ add_executable(rt_main
     src/rt/mpu_adapter.c
     src/rt/mpu6050_thread_adapted.c
 )
+target_link_libraries(rt_main pthread m)
 
-target_link_libraries(rt_main
-    pthread
-    m
+# ===== cam_process (C++ + OpenCV + dart_detector) =====
+add_executable(cam_process
+    src/rt/devices/cam_process.cpp
+    src/vision/dart_detector.cpp
+    src/vision/usb_camera.cpp
+)
+
+target_include_directories(cam_process PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(cam_process
+    ${OpenCV_LIBS}
 )
