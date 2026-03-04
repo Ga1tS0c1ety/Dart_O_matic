@@ -78,14 +78,7 @@ void aggregator_tick(Aggregator* ag, uint64_t now_us) {
     if (!ag->active) return;
 
     if (now_us >= ag->deadline_us) {
-        if (now_us >= ag->deadline_us && !ag->expired) {
-    ag->expired = 1;
-    printf("[AGG] expired impact_id=%llu now=%llu deadline=%llu obs=%d\n",
-           (unsigned long long)ag->impact_id,
-           (unsigned long long)now_us,
-           (unsigned long long)ag->deadline_us,
-           count_obs(ag));
-}ag->expired = 1;
+        ag->expired = 1;
     }
 }
 
