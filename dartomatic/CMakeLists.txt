@@ -49,3 +49,22 @@ add_executable(rt_agg_test
     src/tools/rt_agg_test.c
     src/rt/aggregator.c
 )
+
+add_executable(rt_orch_sim
+    src/tools/rt_orch_sim.c
+    src/rt/rt_orchestrator.c
+    src/rt/aggregator.c
+)
+
+add_executable(rt_main
+    src/rt/main_rt.c
+    src/rt/rt_orchestrator.c
+    src/rt/aggregator.c
+    src/rt/mpu_adapter.c
+    src/rt/mpu6050_thread_adapted.c
+)
+
+target_link_libraries(rt_main
+    pthread
+    m
+)
