@@ -1,5 +1,6 @@
 #include "rt/aggregator.h"
 #include <string.h>
+#include <stdio.h>
 
 /* Convertit ms -> us */
 static uint64_t ms_to_us(int ms) {
