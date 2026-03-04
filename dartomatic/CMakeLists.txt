@@ -44,3 +44,8 @@ add_executable(ui_cli
     src/tools/ui_cli.c
 )
 target_link_libraries(ui_cli appbus_client pthread)
+
+add_executable(rt_agg_test
+    src/tools/rt_agg_test.c
+    src/rt/aggregator.c
+)
