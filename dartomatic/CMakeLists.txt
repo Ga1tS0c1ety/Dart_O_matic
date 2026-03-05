@@ -94,6 +94,7 @@ target_include_directories(rt_main PRIVATE
 target_link_libraries(rt_main
     pthread
     m
+    appbus_client
     vision_geom
 )
 
