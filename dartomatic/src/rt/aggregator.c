@@ -1,6 +1,5 @@
 #include "rt/aggregator.h"
 #include <string.h>
-#include <stdio.h>
 
 /* Convertit ms -> us */
 static uint64_t ms_to_us(int ms) {
@@ -48,12 +47,6 @@ void aggregator_on_trigger(Aggregator* ag, uint64_t impact_id, uint64_t ts_us) {
     ag->impact_id = impact_id;
     ag->ts_trigger_us = ts_us;
     ag->deadline_us = ts_us + ms_to_us(ag->p.window_ms);
-
-    printf("[AGG][DBG] TRIGGER impact_id=%llu ts=%llu deadline=%llu window_ms=%d\n",
-       (unsigned long long)ag->impact_id,
-       (unsigned long long)ag->ts_trigger_us,
-       (unsigned long long)ag->deadline_us,
-       ag->p.window_ms);
     ag->expired = 0;
 }
 
@@ -84,24 +77,8 @@ void aggregator_tick(Aggregator* ag, uint64_t now_us) {
     if (!ag) return;
     if (!ag->active) return;
 
-    // log rare: toutes les ~1000 itérations si tu veux éviter le spam,
-    // mais pour debug tu peux le laisser brut quelques secondes
-    if (now_us >= ag->deadline_us && !ag->expired) {
-        printf("[AGG][DBG] EXPIRE now=%llu deadline=%llu impact_id=%llu\n",
-               (unsigned long long)now_us,
-               (unsigned long long)ag->deadline_us,
-               (unsigned long long)ag->impact_id);
+    if (now_us >= ag->deadline_us) {
         ag->expired = 1;
-    } else if (!ag->expired) {
-        // optionnel: log une fois pour voir l'écart (à enlever après)
-        static int once = 0;
-        if (!once) {
-            once = 1;
-            printf("[AGG][DBG] TICK now=%llu deadline=%llu (delta=%lldus)\n",
-                   (unsigned long long)now_us,
-                   (unsigned long long)ag->deadline_us,
-                   (long long)(ag->deadline_us - now_us));
-        }
     }
 }
 
