@@ -4,6 +4,8 @@
 #include "ipc/rt_ipc.h"
 #include "rt/triangulation.h"
 #include "vision/camera_model.h"
+#include "rt/rt_bridge_out.h"
+#include "ipc/appbus_ipc.h"   /* pour APPBUS_DEFAULT_SOCK */
 
 #include <stdio.h>
 #include <string.h>
@@ -95,6 +97,12 @@ int main(void) {
     printf("[RT] cams: {%d,%d,%d,%d} window=%dms min=%d cooldown=%dms\n",
            op.cam_ids[0], op.cam_ids[1], op.cam_ids[2], op.cam_ids[3],
            op.window_ms, op.min_cams, op.cooldown_ms);
+
+        /* === Bridge RT -> AppBus (intégré) === */
+    AppBusClient* bus = rt_bridge_out_init(APPBUS_DEFAULT_SOCK);
+    if (!bus) {
+        fprintf(stderr, "[RT] WARN: AppBus indisponible, RT continuera sans publish.\n");
+    }
 
     while (1) {
         fd_set rfds;
@@ -209,10 +217,19 @@ int main(void) {
                        tr.reproj_err_px,
                        op.cam_ids[tr.cam_i], op.cam_ids[tr.cam_j]);
 
-                /*
-                 * Prochaine étape :
-                 *   -> publier evt/impact/triangulated sur AppBus
-                 */
+                    if (bus) {
+                    (void)rt_bridge_publish_triangulated(
+                        bus,
+                        b.impact_id,
+                        b.ts_trigger_us,
+                        X_mm, Y_mm, Z_mm,
+                        tr.reproj_err_px,
+                        b.obs_count,
+                        op.cam_ids[tr.cam_i],
+                        op.cam_ids[tr.cam_j]
+                    );
+                }
+                
             } else {
                 printf("[RT][TRIANG] impact_id=%llu  ECHEC rc=%d (pas de paire valide)\n",
                        (unsigned long long)b.impact_id, rc);
