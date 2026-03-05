@@ -171,24 +171,24 @@ int main(void) {
             }
         }
 
-            static uint64_t last_print = 0;
-if (t - last_print > 20000) { // toutes les 20ms (évite le spam)
-    last_print = t;
+//             static uint64_t last_print = 0;
+// if (t - last_print > 20000) { // toutes les 20ms (évite le spam)
+//     last_print = t;
 
-    printf("[DBG] t=%llu state=%d active=%d expired=%d impact_id=%llu deadline=%llu count=",
-           (unsigned long long)t,
-           rt_orch_state(&orch),
-           orch.ag.active,
-           orch.ag.expired,
-           (unsigned long long)orch.ag.impact_id,
-           (unsigned long long)orch.ag.deadline_us);
+//     printf("[DBG] t=%llu state=%d active=%d expired=%d impact_id=%llu deadline=%llu count=",
+//            (unsigned long long)t,
+//            rt_orch_state(&orch),
+//            orch.ag.active,
+//            orch.ag.expired,
+//            (unsigned long long)orch.ag.impact_id,
+//            (unsigned long long)orch.ag.deadline_us);
 
-    int c = 0;
-    for (int i = 0; i < orch.ag.p.n_cams; i++) c += orch.ag.has_obs[i] ? 1 : 0;
-    printf("%d/%d min=%d\n", c, orch.ag.p.n_cams, orch.ag.p.min_cams);
+//     int c = 0;
+//     for (int i = 0; i < orch.ag.p.n_cams; i++) c += orch.ag.has_obs[i] ? 1 : 0;
+//     printf("%d/%d min=%d\n", c, orch.ag.p.n_cams, orch.ag.p.min_cams);
 
-    fflush(stdout);
-}
+//     fflush(stdout);
+// }
         /* ==== Bundle prêt ? ==== */
         ImpactBundle b;
         if (rt_orch_poll_bundle(&orch, &b)) {

@@ -104,7 +104,12 @@ void rt_orch_tick(RtOrchestrator* o, uint64_t now_us) {
         return;
     }
 
-    /* IDLE: rien */
+            // ✅ si l'aggregator s'est reset (rejet), on sort de ARMED
+    if (!o->ag.active) {
+            o->state = ORCH_COOLDOWN;                 // ou ORCH_IDLE si tu préfères
+            o->cooldown_until_us = now_us + ms_to_us(o->p.cooldown_ms);
+        }
+        return;
 }
 
 int rt_orch_poll_bundle(RtOrchestrator* o, ImpactBundle* out) {
