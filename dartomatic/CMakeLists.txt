@@ -81,6 +81,7 @@ add_executable(rt_main
     src/rt/aggregator.c
     src/rt/mpu_adapter.c
     src/rt/mpu6050_thread_adapted.c
+    src/rt/rt_bridge_out.c
 
     src/rt/triangulation_opencv.cpp
 )
