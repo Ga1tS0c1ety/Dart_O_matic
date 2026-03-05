@@ -39,7 +39,7 @@ int main(void) {
     op.cam_ids[2] = 4;
     op.cam_ids[3] = 6;
     op.min_cams = 2;
-    op.window_ms = 150;
+    op.window_ms = 800;
     op.cooldown_ms = 250;
 
     if (rt_orch_init(&orch, op) != 0) {
