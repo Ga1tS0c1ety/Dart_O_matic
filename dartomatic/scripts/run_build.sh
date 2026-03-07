@@ -7,4 +7,4 @@ rm -rf build
 cmake -S . -B build
 cmake --build build -j
 
-./scripts/run_dev.sh
+./scripts/run_ui.sh
