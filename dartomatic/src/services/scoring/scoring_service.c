@@ -97,7 +97,7 @@ static const int BOARD_NUMBERS[20] = {
  *
  * À ajuster après essais réels.
  */
-static const double BOARD_OFFSET_DEG = 0.0;
+static const double BOARD_OFFSET_DEG = 72.0;
 
 /* ========================================================= */
 /* Types internes                                            */
