@@ -9,25 +9,25 @@ LOGDIR="$ROOT/logs"
 mkdir -p "$LOGDIR"
 
 PIDS=()
-CAM_PIDS=()
 CAM_IDS=(0 2 4 6)
 
 cleanup() {
+    trap - INT TERM HUP EXIT
     echo "[run_ui] stop..."
-    for pid in "${PIDS[@]:-}"; do
-        kill "$pid" 2>/dev/null || true
-    done
+
+    # Tuer tout le groupe de processus lancé par ce script
+    kill -- -$$ 2>/dev/null || true
+
     wait 2>/dev/null || true
 }
 
-trap cleanup INT TERM EXIT
+trap cleanup INT TERM HUP EXIT
 
 echo "[run_ui] démarrage..."
 
 # -------------------------
 # AppBus
 # -------------------------
-
 "$BIN/appbusd" > "$LOGDIR/appbusd.log" 2>&1 &
 PIDS+=($!)
 sleep 0.3
@@ -35,7 +35,6 @@ sleep 0.3
 # -------------------------
 # Services
 # -------------------------
-
 "$BIN/scoring_service" "$SOCK" > "$LOGDIR/scoring.log" 2>&1 &
 PIDS+=($!)
 
@@ -45,28 +44,23 @@ PIDS+=($!)
 # -------------------------
 # Cameras
 # -------------------------
-
 echo "[run_ui] lancement cam_process..."
 
 for cam_id in "${CAM_IDS[@]}"; do
     "$BIN/cam_process" "$cam_id" > "$LOGDIR/cam_${cam_id}.log" 2>&1 &
-    pid=$!
-    PIDS+=($pid)
-    CAM_PIDS+=($pid)
+    PIDS+=($!)
     sleep 0.5
 done
 
 # -------------------------
 # RT
 # -------------------------
-
 "$BIN/rt_main" > "$LOGDIR/rt.log" 2>&1 &
 PIDS+=($!)
 
 # -------------------------
 # Attente cams prêtes
 # -------------------------
-
 echo "[run_ui] attente caméras prêtes..."
 
 READY_COUNT=0
@@ -101,7 +95,5 @@ echo "[run_ui] OK -> au moins 2 caméras prêtes"
 # -------------------------
 # UI au premier plan
 # -------------------------
-
 echo "[run_ui] lancement UI"
-
-exec "$BIN/ui_cli" "$SOCK"
+"$BIN/ui_cli" "$SOCK"
