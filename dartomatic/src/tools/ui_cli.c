@@ -99,6 +99,7 @@ typedef struct {
     int last_hit;
     unsigned long long last_impact_id;
     int waiting_board_clear;
+    int history_count;
 
     UiPlayer players[UI_MAX_PLAYERS];
     int players_count;
@@ -120,7 +121,7 @@ static void ui_render(UiCtx* ctx) {
 
     if (!ctx->has_state) {
         printf(" État : aucun état reçu\n");
-        printf(" Commandes : [s] start   [n] next/clear   [q] quit\n");
+        printf(" Commandes : [s] start  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
         printf("> ");
         fflush(stdout);
         pthread_mutex_unlock(&ctx->lock);
@@ -134,6 +135,7 @@ static void ui_render(UiCtx* ctx) {
     printf(" Fléchette     : %d / 3\n", ctx->current_dart);
     printf(" Dernier hit   : %d\n", ctx->last_hit);
     printf(" Dernier impact: %llu\n", ctx->last_impact_id);
+    printf(" Historique    : %d darts\n", ctx->history_count);
     printf(" Plateau libre : %s\n", ctx->waiting_board_clear ? "NON (retirer fléchettes)" : "OUI");
 
     ui_separator();
@@ -154,7 +156,7 @@ static void ui_render(UiCtx* ctx) {
     }
 
     ui_separator();
-    printf(" Commandes : [s] start   [n] next/clear   [q] quit\n");
+    printf(" Commandes : [s] start  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
     printf("> ");
     fflush(stdout);
 
@@ -176,6 +178,7 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     int current_dart = 0;
     int last_hit = 0;
     int waiting_board_clear = 0;
+    int history_count = 0;
     unsigned long long last_impact_id = 0;
     char mode[32] = {0};
 
@@ -191,6 +194,7 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     json_get_int(payload, "current_dart", &current_dart);
     json_get_int(payload, "last_hit", &last_hit);
     json_get_int(payload, "waiting_board_clear", &waiting_board_clear);
+    json_get_int(payload, "history_count", &history_count);
     json_get_u64(payload, "last_impact_id", &last_impact_id);
 
     int parsed_players = json_get_players(payload, players, UI_MAX_PLAYERS);
@@ -208,6 +212,7 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     ctx->current_dart = current_dart;
     ctx->last_hit = last_hit;
     ctx->waiting_board_clear = waiting_board_clear;
+    ctx->history_count = history_count;
     ctx->last_impact_id = last_impact_id;
 
     ctx->players_count = parsed_players;
@@ -226,6 +231,34 @@ static void* rx_thread(void* arg) {
     UiCtx* ctx = (UiCtx*)arg;
     appbus_poll(ctx->bus, on_bus_msg, ctx);
     return NULL;
+}
+
+static void publish_score_command(AppBusClient* bus, const char* topic) {
+    int score = 0;
+
+    printf("\n[UI] score ? ");
+    fflush(stdout);
+
+    if (scanf("%d", &score) != 1) {
+        printf("[UI] saisie invalide\n> ");
+        fflush(stdout);
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF) {}
+        return;
+    }
+
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF) {}
+
+    char payload[128];
+    snprintf(payload, sizeof(payload), "{\"score\":%d}", score);
+
+    if (appbus_publish(bus, topic, payload) != 0) {
+        fprintf(stderr, "[UI] erreur publish %s\n", topic);
+    } else {
+        printf("[UI] envoyé %s %s\n> ", topic, payload);
+        fflush(stdout);
+    }
 }
 
 int main(int argc, char** argv) {
@@ -271,6 +304,20 @@ int main(int argc, char** argv) {
                 printf("[UI] start envoyé\n> ");
                 fflush(stdout);
             }
+        }
+        else if (ch == 'u' || ch == 'U') {
+            if (appbus_publish(bus, TOPIC_CMD_GAME_UNDO, "{}") != 0) {
+                fprintf(stderr, "[UI] erreur publish cmd/game/undo\n");
+            } else {
+                printf("[UI] undo envoyé\n> ");
+                fflush(stdout);
+            }
+        }
+        else if (ch == 'o' || ch == 'O') {
+            publish_score_command(bus, TOPIC_CMD_GAME_OVERRIDE_LAST);
+        }
+        else if (ch == 'a' || ch == 'A') {
+            publish_score_command(bus, TOPIC_CMD_GAME_ADD_MANUAL_HIT);
         }
         else if (ch == 'n' || ch == 'N') {
             if (appbus_publish(bus, TOPIC_CMD_BOARD_CLEAR_CONF, "{}") != 0) {

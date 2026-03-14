@@ -39,8 +39,21 @@ static uint64_t now_us(void) {
 /* Réception AppBus côté RT                                  */
 /* ========================================================= */
 
+/*
+ * Flags pilotés par le thread AppBus RX.
+ *
+ * - board_clear_confirmed :
+ *     info métier/UI : le joueur a retiré les fléchettes
+ *
+ * - refresh_reference_requested :
+ *     demande technique : les caméras doivent rafraîchir leur référence
+ *
+ * Règle choisie :
+ *   toute commande manuelle demande un refresh caméra.
+ */
 typedef struct {
     volatile int board_clear_confirmed;
+    volatile int refresh_reference_requested;
 } RtBusFlags;
 
 typedef struct {
@@ -50,8 +63,9 @@ typedef struct {
 
 /*
  * Callback AppBus :
- * ici on ne consomme qu'une commande :
- *   cmd/board/clear_confirmed
+ * le RT consomme plusieurs commandes, mais son action reste simple :
+ *   -> lever un flag
+ * la boucle principale fera le vrai travail.
  */
 static void on_rt_bus_msg(const char* topic, const char* payload, size_t payload_len, void* user) {
     (void)payload;
@@ -62,6 +76,15 @@ static void on_rt_bus_msg(const char* topic, const char* payload, size_t payload
 
     if (strcmp(topic, TOPIC_CMD_BOARD_CLEAR_CONF) == 0) {
         flags->board_clear_confirmed = 1;
+        flags->refresh_reference_requested = 1;
+        return;
+    }
+
+    if (strcmp(topic, TOPIC_CMD_GAME_UNDO) == 0 ||
+        strcmp(topic, TOPIC_CMD_GAME_OVERRIDE_LAST) == 0 ||
+        strcmp(topic, TOPIC_CMD_GAME_ADD_MANUAL_HIT) == 0) {
+        flags->refresh_reference_requested = 1;
+        return;
     }
 }
 
@@ -79,7 +102,10 @@ static void* rt_bus_rx_thread(void* arg) {
 /* ========================================================= */
 
 int main(void) {
-    /* === Init orchestrateur === */
+    /* ===================================================== */
+    /* Init orchestrateur RT                                 */
+    /* ===================================================== */
+
     RtOrchestrator orch;
     RtOrchestratorParams op;
     memset(&op, 0, sizeof(op));
@@ -99,7 +125,10 @@ int main(void) {
         return 1;
     }
 
-    /* === Chargement modèles caméra pour triangulation === */
+    /* ===================================================== */
+    /* Chargement calibration caméras pour triangulation     */
+    /* ===================================================== */
+
     CameraModel cam_models[8];
     const char* intr_pat = "data/cam_param/camera_params_%d.yaml";
     const char* extr_pat = "data/cam_param/camera_extrinsics_%d.yaml";
@@ -109,18 +138,28 @@ int main(void) {
         return 1;
     }
 
-    /* === Init MPU adapter === */
+    /* ===================================================== */
+    /* Init MPU                                              */
+    /* ===================================================== */
+
     MpuAdapter mpu;
     if (mpu_adapter_init(&mpu) != 0) {
         fprintf(stderr, "[RT] mpu_adapter_init failed\n");
         return 1;
     }
 
-    /* === Lance thread MPU === */
     pthread_t mpu_tid;
     pthread_create(&mpu_tid, NULL, mpu_thread, &mpu);
 
-    /* === Socket RT master (réception observations caméras) === */
+    /* ===================================================== */
+    /* Socket RT master                                      */
+    /* ===================================================== */
+
+    /*
+     * Sert à :
+     *   - recevoir les observations caméras
+     *   - envoyer des commandes aux caméras via sendto()
+     */
     int master_sock = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (master_sock < 0) {
         perror("socket");
@@ -138,7 +177,7 @@ int main(void) {
         return 1;
     }
 
-    /* === Adresses des cams (émission commandes RT) === */
+    /* Adresses cibles des cam_process */
     struct sockaddr_un cam_addrs[8];
     for (int i = 0; i < op.n_cams; i++) {
         memset(&cam_addrs[i], 0, sizeof(cam_addrs[i]));
@@ -158,7 +197,7 @@ int main(void) {
 
     /*
      * bus_pub :
-     *   utilisé uniquement pour publier evt/impact/triangulated
+     *   utilisé pour publier evt/impact/triangulated
      */
     AppBusClient* bus_pub = rt_bridge_out_init(APPBUS_DEFAULT_SOCK);
     if (!bus_pub) {
@@ -167,16 +206,21 @@ int main(void) {
 
     /*
      * bus_cmd :
-     *   utilisé uniquement pour recevoir cmd/board/clear_confirmed
-     * On prend une 2e connexion pour éviter de mélanger poll RX et publish
-     * sur le même client.
+     *   utilisé pour recevoir les commandes UI / arbitrage.
+     *
+     * On prend une 2e connexion séparée :
+     *   - bus_pub : publication
+     *   - bus_cmd : réception bloquante via thread
      */
     AppBusClient* bus_cmd = appbus_connect(APPBUS_DEFAULT_SOCK);
     if (!bus_cmd) {
         fprintf(stderr, "[RT] WARN: AppBus indisponible pour commandes.\n");
     } else {
-        if (appbus_subscribe(bus_cmd, TOPIC_CMD_BOARD_CLEAR_CONF) != 0) {
-            fprintf(stderr, "[RT] WARN: subscribe %s échoué\n", TOPIC_CMD_BOARD_CLEAR_CONF);
+        if (appbus_subscribe(bus_cmd, TOPIC_CMD_BOARD_CLEAR_CONF) != 0 ||
+            appbus_subscribe(bus_cmd, TOPIC_CMD_GAME_UNDO) != 0 ||
+            appbus_subscribe(bus_cmd, TOPIC_CMD_GAME_OVERRIDE_LAST) != 0 ||
+            appbus_subscribe(bus_cmd, TOPIC_CMD_GAME_ADD_MANUAL_HIT) != 0) {
+            fprintf(stderr, "[RT] WARN: erreur subscribe commandes AppBus\n");
             appbus_close(bus_cmd);
             bus_cmd = NULL;
         }
@@ -204,13 +248,14 @@ int main(void) {
         FD_ZERO(&rfds);
 
         FD_SET(master_sock, &rfds);
+
         int mfd = mpu_adapter_fd(&mpu);
         FD_SET(mfd, &rfds);
 
         int maxfd = master_sock;
         if (mfd > maxfd) maxfd = mfd;
 
-        /* timeout 1ms pour tick régulier */
+        /* Tick régulier 1 ms */
         struct timeval tv;
         tv.tv_sec = 0;
         tv.tv_usec = 1000;
@@ -218,15 +263,23 @@ int main(void) {
         int r = select(maxfd + 1, &rfds, NULL, NULL, &tv);
 
         uint64_t t = now_us();
+
+        /* Tick orchestrateur / aggregator */
         rt_orch_tick(&orch, t);
 
         /* ------------------------------------------------- */
-        /* Commande AppBus : board clear confirmed           */
+        /* Commandes AppBus -> flags RT                      */
         /* ------------------------------------------------- */
+
         if (bus_flags.board_clear_confirmed) {
             bus_flags.board_clear_confirmed = 0;
+            printf("[RT] board clear confirmé\n");
+        }
 
-            printf("[RT] board clear confirmé -> refresh références caméras\n");
+        if (bus_flags.refresh_reference_requested) {
+            bus_flags.refresh_reference_requested = 0;
+
+            printf("[RT] refresh références caméras\n");
 
             RtCamCommand cmd;
             memset(&cmd, 0, sizeof(cmd));
@@ -244,6 +297,7 @@ int main(void) {
         /* ------------------------------------------------- */
         /* MPU -> trigger nouvel impact                      */
         /* ------------------------------------------------- */
+
         if (r > 0 && FD_ISSET(mfd, &rfds)) {
             unsigned char buf[64];
 
@@ -274,6 +328,7 @@ int main(void) {
         /* ------------------------------------------------- */
         /* Réception observations caméras                    */
         /* ------------------------------------------------- */
+
         if (r > 0 && FD_ISSET(master_sock, &rfds)) {
             while (1) {
                 RtObservationMsg obs;
@@ -285,6 +340,7 @@ int main(void) {
                 }
 
                 if (rr != (ssize_t)sizeof(obs)) {
+                    /* paquet incomplet ou autre -> ignore */
                     continue;
                 }
 
@@ -301,6 +357,7 @@ int main(void) {
         /* ------------------------------------------------- */
         /* Bundle prêt -> triangulation -> publish           */
         /* ------------------------------------------------- */
+
         ImpactBundle b;
         if (rt_orch_poll_bundle(&orch, &b)) {
             printf("[RT] BUNDLE READY impact_id=%llu obs=%d\n",
