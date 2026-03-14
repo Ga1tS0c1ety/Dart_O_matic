@@ -7,30 +7,7 @@
 #include <string.h>
 #include <pthread.h>
 
-/*
- * ui_cli (V3)
- * -----------
- * UI terminal simple, compatible avec game_service multi-joueurs.
- *
- * Fonctions :
- *  - écoute evt/game/state
- *  - affiche un état lisible
- *  - touche 's' : start game
- *  - touche 'q' : quitter
- *
- * Hypothèse :
- *  - game_service publie un JSON avec :
- *      active, mode, round, max_rounds,
- *      player_count, current_player, current_dart,
- *      last_hit, last_impact_id,
- *      players:[{"name":"P1","score":12}, ...]
- */
-
 #define UI_MAX_PLAYERS 8
-
-/* ========================================================= */
-/* Parsing JSON minimal                                      */
-/* ========================================================= */
 
 static int json_get_int(const char* json, const char* key, int* out) {
     char pat[64];
@@ -68,13 +45,6 @@ static int json_get_string(const char* json, const char* key, char* out, size_t 
     return 1;
 }
 
-/*
- * Parsing très simple du tableau players.
- * On cherche des motifs :
- *   {"name":"P1","score":12}
- *
- * Comme c'est notre propre JSON, ce parsing minimal suffit pour V1/V2.
- */
 typedef struct {
     char name[32];
     int score;
@@ -113,10 +83,6 @@ static int json_get_players(const char* json, UiPlayer* players, int max_players
     return count;
 }
 
-/* ========================================================= */
-/* État UI                                                   */
-/* ========================================================= */
-
 typedef struct {
     AppBusClient* bus;
     pthread_mutex_t lock;
@@ -132,16 +98,13 @@ typedef struct {
 
     int last_hit;
     unsigned long long last_impact_id;
+    int waiting_board_clear;
 
     UiPlayer players[UI_MAX_PLAYERS];
     int players_count;
 
     int has_state;
 } UiCtx;
-
-/* ========================================================= */
-/* Affichage                                                 */
-/* ========================================================= */
 
 static void ui_separator(void) {
     printf("==================================================\n");
@@ -157,7 +120,7 @@ static void ui_render(UiCtx* ctx) {
 
     if (!ctx->has_state) {
         printf(" État : aucun état reçu\n");
-        printf(" Commandes : [s] start   [q] quit\n");
+        printf(" Commandes : [s] start   [n] next/clear   [q] quit\n");
         printf("> ");
         fflush(stdout);
         pthread_mutex_unlock(&ctx->lock);
@@ -171,6 +134,7 @@ static void ui_render(UiCtx* ctx) {
     printf(" Fléchette     : %d / 3\n", ctx->current_dart);
     printf(" Dernier hit   : %d\n", ctx->last_hit);
     printf(" Dernier impact: %llu\n", ctx->last_impact_id);
+    printf(" Plateau libre : %s\n", ctx->waiting_board_clear ? "NON (retirer fléchettes)" : "OUI");
 
     ui_separator();
     printf(" Scores joueurs\n");
@@ -190,16 +154,12 @@ static void ui_render(UiCtx* ctx) {
     }
 
     ui_separator();
-    printf(" Commandes : [s] start   [q] quit\n");
+    printf(" Commandes : [s] start   [n] next/clear   [q] quit\n");
     printf("> ");
     fflush(stdout);
 
     pthread_mutex_unlock(&ctx->lock);
 }
-
-/* ========================================================= */
-/* Callback AppBus                                           */
-/* ========================================================= */
 
 static void on_bus_msg(const char* topic, const char* payload, size_t payload_len, void* user) {
     (void)payload_len;
@@ -215,8 +175,10 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     int current_player = 0;
     int current_dart = 0;
     int last_hit = 0;
+    int waiting_board_clear = 0;
     unsigned long long last_impact_id = 0;
     char mode[32] = {0};
+
     UiPlayer players[UI_MAX_PLAYERS];
     memset(players, 0, sizeof(players));
 
@@ -228,6 +190,7 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     json_get_int(payload, "current_player", &current_player);
     json_get_int(payload, "current_dart", &current_dart);
     json_get_int(payload, "last_hit", &last_hit);
+    json_get_int(payload, "waiting_board_clear", &waiting_board_clear);
     json_get_u64(payload, "last_impact_id", &last_impact_id);
 
     int parsed_players = json_get_players(payload, players, UI_MAX_PLAYERS);
@@ -244,6 +207,7 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     ctx->current_player = current_player;
     ctx->current_dart = current_dart;
     ctx->last_hit = last_hit;
+    ctx->waiting_board_clear = waiting_board_clear;
     ctx->last_impact_id = last_impact_id;
 
     ctx->players_count = parsed_players;
@@ -258,19 +222,11 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     ui_render(ctx);
 }
 
-/* ========================================================= */
-/* Thread RX                                                 */
-/* ========================================================= */
-
 static void* rx_thread(void* arg) {
     UiCtx* ctx = (UiCtx*)arg;
     appbus_poll(ctx->bus, on_bus_msg, ctx);
     return NULL;
 }
-
-/* ========================================================= */
-/* main                                                      */
-/* ========================================================= */
 
 int main(int argc, char** argv) {
     const char* sock = (argc >= 2) ? argv[1] : APPBUS_DEFAULT_SOCK;
@@ -309,16 +265,18 @@ int main(int argc, char** argv) {
         if (ch == EOF) break;
 
         if (ch == 's' || ch == 'S') {
-            /*
-             * On garde "{}" pour rester compatible.
-             * Plus tard on pourra envoyer :
-             *   {"players":2,"max_rounds":10}
-             */
             if (appbus_publish(bus, TOPIC_CMD_GAME_START, "{}") != 0) {
                 fprintf(stderr, "[UI] erreur publish cmd/game/start\n");
             } else {
-                printf("[UI] start envoyé\n");
-                printf("> ");
+                printf("[UI] start envoyé\n> ");
+                fflush(stdout);
+            }
+        }
+        else if (ch == 'n' || ch == 'N') {
+            if (appbus_publish(bus, TOPIC_CMD_BOARD_CLEAR_CONF, "{}") != 0) {
+                fprintf(stderr, "[UI] erreur publish cmd/board/clear_confirmed\n");
+            } else {
+                printf("[UI] board clear confirmé\n> ");
                 fflush(stdout);
             }
         }
@@ -330,8 +288,7 @@ int main(int argc, char** argv) {
             /* ignore */
         }
         else {
-            printf("[UI] commande inconnue '%c'\n", ch);
-            printf("> ");
+            printf("[UI] commande inconnue '%c'\n> ", ch);
             fflush(stdout);
         }
     }

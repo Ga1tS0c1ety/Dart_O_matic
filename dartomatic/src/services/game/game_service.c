@@ -6,21 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/*
- * game_service (V3)
- * -----------------
- * Mode actuel :
- *   - high_score
- *   - multi-joueurs simple
- *   - 2 joueurs par défaut
- *   - 3 fléchettes par tour
- *   - 10 manches par défaut
- *
- * Objectif :
- *   - conserver la compatibilité avec l'UI actuelle
- *   - préparer 501 / cricket plus tard
- */
-
 #define MAX_PLAYERS 4
 #define DARTS_PER_TURN 3
 
@@ -47,7 +32,7 @@ static int json_get_u64(const char* json, const char* key, unsigned long long* o
 }
 
 /* ========================================================= */
-/* Modèle joueur                                             */
+/* Joueur                                                    */
 /* ========================================================= */
 
 typedef struct {
@@ -56,7 +41,7 @@ typedef struct {
 } PlayerState;
 
 /* ========================================================= */
-/* Contexte de partie                                        */
+/* Contexte partie                                           */
 /* ========================================================= */
 
 typedef struct {
@@ -69,11 +54,13 @@ typedef struct {
     int max_rounds;
 
     int player_count;
-    int current_player;   /* index 0..player_count-1 */
-    int current_dart;     /* 1..3 */
+    int current_player;       /* 0..player_count-1 */
+    int current_dart;         /* 1..3 */
 
     int last_hit;
     unsigned long long last_impact_id;
+
+    int waiting_board_clear;  /* 1 si on attend retrait des fléchettes */
 
     PlayerState players[MAX_PLAYERS];
 } GameCtx;
@@ -98,21 +85,14 @@ static void game_reset(GameCtx* g) {
     g->last_hit = 0;
     g->last_impact_id = 0;
 
+    g->waiting_board_clear = 0;
+
     for (int i = 0; i < MAX_PLAYERS; i++) {
         snprintf(g->players[i].name, sizeof(g->players[i].name), "P%d", i + 1);
         g->players[i].score = 0;
     }
 }
 
-/*
- * Démarrage d'une nouvelle partie.
- * Payload accepté plus tard :
- *   {"players":2,"max_rounds":10}
- *
- * Si absent :
- *   - players = 2
- *   - max_rounds = 10
- */
 static void game_start(GameCtx* g, const char* payload) {
     if (!g) return;
 
@@ -138,36 +118,33 @@ static void game_start(GameCtx* g, const char* payload) {
     g->round = 1;
     g->current_player = 0;
     g->current_dart = 1;
+    g->waiting_board_clear = 0;
 }
 
 /*
- * Passe au dart suivant.
- * Après 3 fléchettes :
- *   - joueur suivant
- * Si on dépasse le dernier joueur :
- *   - retour au joueur 0
- *   - manche suivante
- * Si on dépasse max_rounds :
- *   - fin de partie
+ * Fin de tour :
+ * - on passe au joueur suivant
+ * - ou à la manche suivante si on boucle
+ * - mais on ne permet pas de continuer tant que le plateau n'est pas confirmé "clear"
  */
-static void game_advance_after_hit(GameCtx* g) {
+static void game_finish_turn(GameCtx* g) {
     if (!g) return;
 
-    g->current_dart++;
+    g->current_dart = 1;
+    g->current_player++;
 
-    if (g->current_dart > DARTS_PER_TURN) {
-        g->current_dart = 1;
-        g->current_player++;
-
-        if (g->current_player >= g->player_count) {
-            g->current_player = 0;
-            g->round++;
-        }
+    if (g->current_player >= g->player_count) {
+        g->current_player = 0;
+        g->round++;
     }
 
     if (g->round > g->max_rounds) {
         g->active = 0;
+        g->waiting_board_clear = 0;
+        return;
     }
+
+    g->waiting_board_clear = 1;
 }
 
 /* ========================================================= */
@@ -177,7 +154,6 @@ static void game_advance_after_hit(GameCtx* g) {
 static void publish_state(GameCtx* g) {
     char players_json[512];
     players_json[0] = '\0';
-
     strcat(players_json, "[");
 
     for (int i = 0; i < g->player_count; i++) {
@@ -207,6 +183,7 @@ static void publish_state(GameCtx* g) {
              "\"current_dart\":%d,"
              "\"last_hit\":%d,"
              "\"last_impact_id\":%llu,"
+             "\"waiting_board_clear\":%d,"
              "\"players\":%s"
              "}",
              g->active,
@@ -218,6 +195,7 @@ static void publish_state(GameCtx* g) {
              g->current_dart,
              g->last_hit,
              g->last_impact_id,
+             g->waiting_board_clear,
              players_json);
 
     if (appbus_publish(g->bus, TOPIC_EVT_GAME_STATE, out) != 0) {
@@ -239,23 +217,35 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     GameCtx* g = (GameCtx*)user;
     if (!payload) payload = "";
 
-    /* ----------------------------- */
-    /* START                         */
-    /* ----------------------------- */
+    /* START */
     if (strcmp(topic, TOPIC_CMD_GAME_START) == 0) {
         game_start(g, payload);
-
         printf("[game] CMD start reçu -> nouvelle partie (%d joueurs)\n", g->player_count);
         publish_state(g);
         return;
     }
 
-    /* ----------------------------- */
-    /* HIT                           */
-    /* ----------------------------- */
+    /* Confirmation plateau libre */
+    if (strcmp(topic, TOPIC_CMD_BOARD_CLEAR_CONF) == 0) {
+        if (!g->active) return;
+
+        if (g->waiting_board_clear) {
+            g->waiting_board_clear = 0;
+            printf("[game] board clear confirmé -> reprise normale\n");
+            publish_state(g);
+        }
+        return;
+    }
+
+    /* HIT */
     if (strcmp(topic, TOPIC_EVT_HIT_SCORED) == 0) {
         if (!g->active) {
             printf("[game] hit reçu mais game inactive (ignore)\n");
+            return;
+        }
+
+        if (g->waiting_board_clear) {
+            printf("[game] hit reçu mais attente retrait fléchettes (ignore)\n");
             return;
         }
 
@@ -271,7 +261,6 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
             return;
         }
 
-        /* Ajout au joueur courant */
         g->players[g->current_player].score += score;
         g->last_hit = score;
         g->last_impact_id = impact_id;
@@ -284,7 +273,12 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
                g->round,
                g->current_dart);
 
-        game_advance_after_hit(g);
+        g->current_dart++;
+
+        if (g->current_dart > DARTS_PER_TURN) {
+            game_finish_turn(g);
+        }
+
         publish_state(g);
         return;
     }
@@ -307,6 +301,12 @@ int main(int argc, char** argv) {
 
     if (appbus_subscribe(bus, TOPIC_CMD_GAME_START) != 0) {
         fprintf(stderr, "[game] subscribe cmd/game/start échoué\n");
+        appbus_close(bus);
+        return 3;
+    }
+
+    if (appbus_subscribe(bus, TOPIC_CMD_BOARD_CLEAR_CONF) != 0) {
+        fprintf(stderr, "[game] subscribe cmd/board/clear_confirmed échoué\n");
         appbus_close(bus);
         return 3;
     }
