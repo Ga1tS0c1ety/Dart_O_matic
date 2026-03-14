@@ -8,18 +8,25 @@
 #include <pthread.h>
 
 /*
- * ui_cli (V2)
+ * ui_cli (V3)
  * -----------
- * UI terminal simple :
+ * UI terminal simple, compatible avec game_service multi-joueurs.
+ *
+ * Fonctions :
  *  - écoute evt/game/state
- *  - affiche l'état de jeu de manière lisible
+ *  - affiche un état lisible
  *  - touche 's' : start game
  *  - touche 'q' : quitter
  *
- * Architecture :
- *  - 1 thread RX : bloque dans appbus_poll et reçoit les états
- *  - thread principal : lit le clavier et publie les commandes
+ * Hypothèse :
+ *  - game_service publie un JSON avec :
+ *      active, mode, round, max_rounds,
+ *      player_count, current_player, current_dart,
+ *      last_hit, last_impact_id,
+ *      players:[{"name":"P1","score":12}, ...]
  */
+
+#define UI_MAX_PLAYERS 8
 
 /* ========================================================= */
 /* Parsing JSON minimal                                      */
@@ -61,8 +68,53 @@ static int json_get_string(const char* json, const char* key, char* out, size_t 
     return 1;
 }
 
+/*
+ * Parsing très simple du tableau players.
+ * On cherche des motifs :
+ *   {"name":"P1","score":12}
+ *
+ * Comme c'est notre propre JSON, ce parsing minimal suffit pour V1/V2.
+ */
+typedef struct {
+    char name[32];
+    int score;
+} UiPlayer;
+
+static int json_get_players(const char* json, UiPlayer* players, int max_players) {
+    const char* p = strstr(json, "\"players\":[");
+    if (!p) return 0;
+
+    int count = 0;
+
+    while ((p = strstr(p, "\"name\":\"")) != NULL && count < max_players) {
+        p += strlen("\"name\":\"");
+
+        const char* end_name = strchr(p, '"');
+        if (!end_name) break;
+
+        size_t n = (size_t)(end_name - p);
+        if (n >= sizeof(players[count].name)) n = sizeof(players[count].name) - 1;
+
+        memcpy(players[count].name, p, n);
+        players[count].name[n] = '\0';
+
+        const char* score_pos = strstr(end_name, "\"score\":");
+        if (!score_pos) break;
+        score_pos += strlen("\"score\":");
+
+        if (sscanf(score_pos, "%d", &players[count].score) != 1) {
+            players[count].score = 0;
+        }
+
+        count++;
+        p = score_pos;
+    }
+
+    return count;
+}
+
 /* ========================================================= */
-/* Modèle d'état UI                                          */
+/* État UI                                                   */
 /* ========================================================= */
 
 typedef struct {
@@ -74,11 +126,15 @@ typedef struct {
 
     int round;
     int max_rounds;
+    int player_count;
+    int current_player;
     int current_dart;
 
-    int score_total;
     int last_hit;
     unsigned long long last_impact_id;
+
+    UiPlayer players[UI_MAX_PLAYERS];
+    int players_count;
 
     int has_state;
 } UiCtx;
@@ -87,31 +143,53 @@ typedef struct {
 /* Affichage                                                 */
 /* ========================================================= */
 
-static void ui_print_separator(void) {
-    printf("--------------------------------------------------\n");
+static void ui_separator(void) {
+    printf("==================================================\n");
 }
 
 static void ui_render(UiCtx* ctx) {
     pthread_mutex_lock(&ctx->lock);
 
     printf("\n");
-    ui_print_separator();
+    ui_separator();
     printf(" Dart'O'Matic - UI CLI\n");
-    ui_print_separator();
+    ui_separator();
 
     if (!ctx->has_state) {
-        printf(" État : aucun état reçu pour l'instant\n");
-    } else {
-        printf(" Partie active : %s\n", ctx->active ? "OUI" : "NON");
-        printf(" Mode          : %s\n", ctx->mode[0] ? ctx->mode : "unknown");
-        printf(" Manche        : %d / %d\n", ctx->round, ctx->max_rounds);
-        printf(" Fléchette     : %d / 3\n", ctx->current_dart);
-        printf(" Score total   : %d\n", ctx->score_total);
-        printf(" Dernier hit   : %d\n", ctx->last_hit);
-        printf(" Dernier impact: %llu\n", ctx->last_impact_id);
+        printf(" État : aucun état reçu\n");
+        printf(" Commandes : [s] start   [q] quit\n");
+        printf("> ");
+        fflush(stdout);
+        pthread_mutex_unlock(&ctx->lock);
+        return;
     }
 
-    ui_print_separator();
+    printf(" Partie active : %s\n", ctx->active ? "OUI" : "NON");
+    printf(" Mode          : %s\n", ctx->mode[0] ? ctx->mode : "unknown");
+    printf(" Manche        : %d / %d\n", ctx->round, ctx->max_rounds);
+    printf(" Joueur courant: %d / %d\n", ctx->current_player + 1, ctx->player_count);
+    printf(" Fléchette     : %d / 3\n", ctx->current_dart);
+    printf(" Dernier hit   : %d\n", ctx->last_hit);
+    printf(" Dernier impact: %llu\n", ctx->last_impact_id);
+
+    ui_separator();
+    printf(" Scores joueurs\n");
+    ui_separator();
+
+    if (ctx->players_count <= 0) {
+        printf(" (aucun joueur)\n");
+    } else {
+        for (int i = 0; i < ctx->players_count; i++) {
+            const char* marker = (i == ctx->current_player && ctx->active) ? " <==" : "";
+            printf("  [%d] %-10s : %4d%s\n",
+                   i + 1,
+                   ctx->players[i].name,
+                   ctx->players[i].score,
+                   marker);
+        }
+    }
+
+    ui_separator();
     printf(" Commandes : [s] start   [q] quit\n");
     printf("> ");
     fflush(stdout);
@@ -127,28 +205,32 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     (void)payload_len;
 
     UiCtx* ctx = (UiCtx*)user;
-
     if (strcmp(topic, TOPIC_EVT_GAME_STATE) != 0) return;
     if (!payload) return;
 
     int active = 0;
     int round = 0;
     int max_rounds = 0;
+    int player_count = 0;
+    int current_player = 0;
     int current_dart = 0;
-    int score_total = 0;
     int last_hit = 0;
     unsigned long long last_impact_id = 0;
     char mode[32] = {0};
+    UiPlayer players[UI_MAX_PLAYERS];
+    memset(players, 0, sizeof(players));
 
-    /* On parse les champs utiles */
     json_get_int(payload, "active", &active);
     json_get_string(payload, "mode", mode, sizeof(mode));
     json_get_int(payload, "round", &round);
     json_get_int(payload, "max_rounds", &max_rounds);
+    json_get_int(payload, "player_count", &player_count);
+    json_get_int(payload, "current_player", &current_player);
     json_get_int(payload, "current_dart", &current_dart);
-    json_get_int(payload, "score_total", &score_total);
     json_get_int(payload, "last_hit", &last_hit);
     json_get_u64(payload, "last_impact_id", &last_impact_id);
+
+    int parsed_players = json_get_players(payload, players, UI_MAX_PLAYERS);
 
     pthread_mutex_lock(&ctx->lock);
 
@@ -158,10 +240,17 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
 
     ctx->round = round;
     ctx->max_rounds = max_rounds;
+    ctx->player_count = player_count;
+    ctx->current_player = current_player;
     ctx->current_dart = current_dart;
-    ctx->score_total = score_total;
     ctx->last_hit = last_hit;
     ctx->last_impact_id = last_impact_id;
+
+    ctx->players_count = parsed_players;
+    for (int i = 0; i < parsed_players; i++) {
+        ctx->players[i] = players[i];
+    }
+
     ctx->has_state = 1;
 
     pthread_mutex_unlock(&ctx->lock);
@@ -170,7 +259,7 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
 }
 
 /* ========================================================= */
-/* Thread réception                                          */
+/* Thread RX                                                 */
 /* ========================================================= */
 
 static void* rx_thread(void* arg) {
@@ -205,7 +294,6 @@ int main(int argc, char** argv) {
     ctx.bus = bus;
     pthread_mutex_init(&ctx.lock, NULL);
 
-    /* Thread RX */
     pthread_t tid;
     if (pthread_create(&tid, NULL, rx_thread, &ctx) != 0) {
         fprintf(stderr, "[UI] erreur pthread_create\n");
@@ -216,17 +304,15 @@ int main(int argc, char** argv) {
 
     ui_render(&ctx);
 
-    /* Boucle clavier */
     while (1) {
         int ch = getchar();
         if (ch == EOF) break;
 
         if (ch == 's' || ch == 'S') {
             /*
-             * Start game.
-             * On garde "{}" pour rester compatible avec le game_service actuel.
+             * On garde "{}" pour rester compatible.
              * Plus tard on pourra envoyer :
-             *   {"mode":"high_score","max_rounds":10}
+             *   {"players":2,"max_rounds":10}
              */
             if (appbus_publish(bus, TOPIC_CMD_GAME_START, "{}") != 0) {
                 fprintf(stderr, "[UI] erreur publish cmd/game/start\n");
@@ -250,10 +336,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    /*
-     * V2 : on reste simple.
-     * Le thread RX sera arrêté quand le process se termine.
-     */
     appbus_close(bus);
     pthread_mutex_destroy(&ctx.lock);
     return 0;
