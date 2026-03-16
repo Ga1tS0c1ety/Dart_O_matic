@@ -48,9 +48,10 @@ static int json_get_string(const char* json, const char* key, char* out, size_t 
 typedef struct {
     char name[32];
     int score;
+    int remaining;
 } UiPlayer;
 
-static int json_get_players(const char* json, UiPlayer* players, int max_players) {
+static int json_get_players(const char* json, UiPlayer* players, int max_players, const char* mode) {
     const char* p = strstr(json, "\"players\":[");
     if (!p) return 0;
 
@@ -68,16 +69,26 @@ static int json_get_players(const char* json, UiPlayer* players, int max_players
         memcpy(players[count].name, p, n);
         players[count].name[n] = '\0';
 
-        const char* score_pos = strstr(end_name, "\"score\":");
-        if (!score_pos) break;
-        score_pos += strlen("\"score\":");
+        players[count].score = 0;
+        players[count].remaining = 0;
 
-        if (sscanf(score_pos, "%d", &players[count].score) != 1) {
-            players[count].score = 0;
+        if (strcmp(mode, "high_score") == 0) {
+            const char* score_pos = strstr(end_name, "\"score\":");
+            if (score_pos) {
+                score_pos += strlen("\"score\":");
+                sscanf(score_pos, "%d", &players[count].score);
+            }
+            p = end_name;
+        } else {
+            const char* rem_pos = strstr(end_name, "\"remaining\":");
+            if (rem_pos) {
+                rem_pos += strlen("\"remaining\":");
+                sscanf(rem_pos, "%d", &players[count].remaining);
+            }
+            p = end_name;
         }
 
         count++;
-        p = score_pos;
     }
 
     return count;
@@ -121,7 +132,7 @@ static void ui_render(UiCtx* ctx) {
 
     if (!ctx->has_state) {
         printf(" État : aucun état reçu\n");
-        printf(" Commandes : [s] start  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
+        printf(" Commandes : [h] high  [1] 301  [5] 501  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
         printf("> ");
         fflush(stdout);
         pthread_mutex_unlock(&ctx->lock);
@@ -139,7 +150,7 @@ static void ui_render(UiCtx* ctx) {
     printf(" Plateau libre : %s\n", ctx->waiting_board_clear ? "NON (retirer fléchettes)" : "OUI");
 
     ui_separator();
-    printf(" Scores joueurs\n");
+    printf(" Joueurs\n");
     ui_separator();
 
     if (ctx->players_count <= 0) {
@@ -147,16 +158,19 @@ static void ui_render(UiCtx* ctx) {
     } else {
         for (int i = 0; i < ctx->players_count; i++) {
             const char* marker = (i == ctx->current_player && ctx->active) ? " <==" : "";
-            printf("  [%d] %-10s : %4d%s\n",
-                   i + 1,
-                   ctx->players[i].name,
-                   ctx->players[i].score,
-                   marker);
+
+            if (strcmp(ctx->mode, "high_score") == 0) {
+                printf("  [%d] %-10s : score=%4d%s\n",
+                       i + 1, ctx->players[i].name, ctx->players[i].score, marker);
+            } else {
+                printf("  [%d] %-10s : remaining=%4d%s\n",
+                       i + 1, ctx->players[i].name, ctx->players[i].remaining, marker);
+            }
         }
     }
 
     ui_separator();
-    printf(" Commandes : [s] start  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
+    printf(" Commandes : [h] high  [1] 301  [5] 501  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
     printf("> ");
     fflush(stdout);
 
@@ -197,7 +211,7 @@ static void on_bus_msg(const char* topic, const char* payload, size_t payload_le
     json_get_int(payload, "history_count", &history_count);
     json_get_u64(payload, "last_impact_id", &last_impact_id);
 
-    int parsed_players = json_get_players(payload, players, UI_MAX_PLAYERS);
+    int parsed_players = json_get_players(payload, players, UI_MAX_PLAYERS, mode[0] ? mode : "high_score");
 
     pthread_mutex_lock(&ctx->lock);
 
@@ -235,10 +249,11 @@ static void* rx_thread(void* arg) {
 
 static void publish_score_command(AppBusClient* bus, const char* topic) {
     int score = 0;
+    char ring[16] = {0};
+    int sector = 0;
 
     printf("\n[UI] score ? ");
     fflush(stdout);
-
     if (scanf("%d", &score) != 1) {
         printf("[UI] saisie invalide\n> ");
         fflush(stdout);
@@ -247,16 +262,58 @@ static void publish_score_command(AppBusClient* bus, const char* topic) {
         return;
     }
 
+    printf("[UI] ring ? (ex: SINGLE / DOUBLE / TRIPLE / BULL / BULLSEYE, vide=none) ");
+    fflush(stdout);
+
     int c;
     while ((c = getchar()) != '\n' && c != EOF) {}
 
-    char payload[128];
-    snprintf(payload, sizeof(payload), "{\"score\":%d}", score);
+    if (!fgets(ring, sizeof(ring), stdin)) {
+        ring[0] = '\0';
+    } else {
+        size_t len = strlen(ring);
+        while (len > 0 && (ring[len - 1] == '\n' || ring[len - 1] == '\r')) {
+            ring[--len] = '\0';
+        }
+    }
+
+    printf("[UI] sector ? (0 si inconnu) ");
+    fflush(stdout);
+    if (scanf("%d", &sector) != 1) {
+        sector = 0;
+    }
+    while ((c = getchar()) != '\n' && c != EOF) {}
+
+    char payload[256];
+    snprintf(payload, sizeof(payload),
+             "{"
+             "\"score\":%d,"
+             "\"ring\":\"%s\","
+             "\"sector\":%d"
+             "}",
+             score, ring, sector);
 
     if (appbus_publish(bus, topic, payload) != 0) {
         fprintf(stderr, "[UI] erreur publish %s\n", topic);
     } else {
         printf("[UI] envoyé %s %s\n> ", topic, payload);
+        fflush(stdout);
+    }
+}
+
+static void publish_start_mode(AppBusClient* bus, const char* mode) {
+    char payload[128];
+    snprintf(payload, sizeof(payload),
+             "{"
+             "\"mode\":\"%s\","
+             "\"players\":2"
+             "}",
+             mode);
+
+    if (appbus_publish(bus, TOPIC_CMD_GAME_START, payload) != 0) {
+        fprintf(stderr, "[UI] erreur publish cmd/game/start\n");
+    } else {
+        printf("[UI] start envoyé mode=%s\n> ", mode);
         fflush(stdout);
     }
 }
@@ -297,13 +354,14 @@ int main(int argc, char** argv) {
         int ch = getchar();
         if (ch == EOF) break;
 
-        if (ch == 's' || ch == 'S') {
-            if (appbus_publish(bus, TOPIC_CMD_GAME_START, "{}") != 0) {
-                fprintf(stderr, "[UI] erreur publish cmd/game/start\n");
-            } else {
-                printf("[UI] start envoyé\n> ");
-                fflush(stdout);
-            }
+        if (ch == 'h' || ch == 'H') {
+            publish_start_mode(bus, "high_score");
+        }
+        else if (ch == '1') {
+            publish_start_mode(bus, "301");
+        }
+        else if (ch == '5') {
+            publish_start_mode(bus, "501");
         }
         else if (ch == 'u' || ch == 'U') {
             if (appbus_publish(bus, TOPIC_CMD_GAME_UNDO, "{}") != 0) {
