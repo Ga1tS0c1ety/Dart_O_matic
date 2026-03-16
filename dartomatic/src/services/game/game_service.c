@@ -9,6 +9,7 @@
 #define MAX_PLAYERS 4
 #define DARTS_PER_TURN 3
 #define MAX_HISTORY 512
+#define CRICKET_TARGETS 7
 
 /* ========================================================= */
 /* Parsing JSON minimal                                      */
@@ -58,7 +59,8 @@ typedef enum {
     GAME_MODE_NONE = 0,
     GAME_MODE_HIGH_SCORE,
     GAME_MODE_301,
-    GAME_MODE_501
+    GAME_MODE_501,
+    GAME_MODE_CRICKET
 } GameMode;
 
 typedef struct {
@@ -69,22 +71,25 @@ typedef struct {
 
     /* X01 */
     int remaining;
+
+    /* Cricket */
+    int cricket_score;
+    int cricket_marks[CRICKET_TARGETS]; /* 20,19,18,17,16,15,bull */
 } PlayerState;
 
 typedef struct {
-    unsigned long long impact_id; /* 0 si manuel */
-    int manual;                   /* 0 auto, 1 manuel */
+    unsigned long long impact_id;
+    int manual;
 
     int player_index;
     int round_index;
     int dart_in_turn;
 
     int score;
-
-    char ring[16];                /* utile pour double-out */
+    char ring[16];
     int sector;
 
-    int bust;                     /* 1 si ce dart provoque un bust */
+    int bust;
 } DartRecord;
 
 typedef struct {
@@ -121,6 +126,7 @@ static const char* mode_to_string(GameMode m) {
         case GAME_MODE_HIGH_SCORE: return "high_score";
         case GAME_MODE_301:        return "301";
         case GAME_MODE_501:        return "501";
+        case GAME_MODE_CRICKET:    return "cricket";
         default:                   return "none";
     }
 }
@@ -129,6 +135,7 @@ static GameMode mode_from_string(const char* s) {
     if (!s) return GAME_MODE_HIGH_SCORE;
     if (strcmp(s, "301") == 0) return GAME_MODE_301;
     if (strcmp(s, "501") == 0) return GAME_MODE_501;
+    if (strcmp(s, "cricket") == 0) return GAME_MODE_CRICKET;
     if (strcmp(s, "high_score") == 0) return GAME_MODE_HIGH_SCORE;
     return GAME_MODE_HIGH_SCORE;
 }
@@ -142,6 +149,58 @@ static int mode_start_score(GameMode m) {
 static int ring_is_double(const char* ring) {
     if (!ring) return 0;
     return (strcmp(ring, "DOUBLE") == 0 || strcmp(ring, "BULLSEYE") == 0);
+}
+
+/* ========================================================= */
+/* Helpers cricket                                           */
+/* ========================================================= */
+
+/* ordre interne : 20,19,18,17,16,15,bull */
+static int cricket_target_index(int sector) {
+    switch (sector) {
+        case 20: return 0;
+        case 19: return 1;
+        case 18: return 2;
+        case 17: return 3;
+        case 16: return 4;
+        case 15: return 5;
+        case 25:
+        case 50: return 6;
+        default: return -1;
+    }
+}
+
+static int cricket_marks_from_hit(const char* ring, int sector) {
+    if (sector == 25 || sector == 50) {
+        if (strcmp(ring, "BULLSEYE") == 0) return 2;
+        return 1;
+    }
+
+    if (strcmp(ring, "TRIPLE") == 0) return 3;
+    if (strcmp(ring, "DOUBLE") == 0) return 2;
+    if (strcmp(ring, "SINGLE") == 0) return 1;
+    return 0;
+}
+
+static int cricket_target_value(int idx) {
+    static const int vals[CRICKET_TARGETS] = {20, 19, 18, 17, 16, 15, 25};
+    return vals[idx];
+}
+
+static int cricket_all_closed(const PlayerState* p) {
+    for (int i = 0; i < CRICKET_TARGETS; i++) {
+        if (p->cricket_marks[i] < 3) return 0;
+    }
+    return 1;
+}
+
+static int cricket_has_highest_or_equal_score(const GameCtx* g, int player_index) {
+    int my = g->players[player_index].cricket_score;
+    for (int i = 0; i < g->player_count; i++) {
+        if (i == player_index) continue;
+        if (my < g->players[i].cricket_score) return 0;
+    }
+    return 1;
 }
 
 /* ========================================================= */
@@ -171,6 +230,8 @@ static void game_reset(GameCtx* g) {
         snprintf(g->players[i].name, sizeof(g->players[i].name), "P%d", i + 1);
         g->players[i].score = 0;
         g->players[i].remaining = 0;
+        g->players[i].cricket_score = 0;
+        memset(g->players[i].cricket_marks, 0, sizeof(g->players[i].cricket_marks));
     }
 
     g->history_count = 0;
@@ -213,7 +274,10 @@ static void game_start(GameCtx* g, const char* payload) {
         for (int i = 0; i < g->player_count; i++) {
             g->players[i].remaining = start_score;
         }
-        /* En x01, max_rounds ne sert pas vraiment. On le garde pour affichage. */
+        if (max_rounds <= 0) g->max_rounds = 99;
+    }
+
+    if (g->mode == GAME_MODE_CRICKET) {
         if (max_rounds <= 0) g->max_rounds = 99;
     }
 }
@@ -223,31 +287,41 @@ static void game_start(GameCtx* g, const char* payload) {
 /* ========================================================= */
 
 static void publish_state(GameCtx* g) {
-    char players_json[768];
+    char players_json[2048];
     players_json[0] = '\0';
     strcat(players_json, "[");
 
     for (int i = 0; i < g->player_count; i++) {
-        char one[192];
+        char one[384];
 
         if (g->mode == GAME_MODE_HIGH_SCORE) {
             snprintf(one, sizeof(one),
-                     "%s{"
-                     "\"name\":\"%s\","
-                     "\"score\":%d"
-                     "}",
+                     "%s{\"name\":\"%s\",\"score\":%d}",
                      (i > 0) ? "," : "",
                      g->players[i].name,
                      g->players[i].score);
-        } else {
+        }
+        else if (g->mode == GAME_MODE_301 || g->mode == GAME_MODE_501) {
             snprintf(one, sizeof(one),
-                     "%s{"
-                     "\"name\":\"%s\","
-                     "\"remaining\":%d"
-                     "}",
+                     "%s{\"name\":\"%s\",\"remaining\":%d}",
                      (i > 0) ? "," : "",
                      g->players[i].name,
                      g->players[i].remaining);
+        }
+        else {
+            snprintf(one, sizeof(one),
+                     "%s{\"name\":\"%s\",\"score\":%d,"
+                     "\"marks\":[%d,%d,%d,%d,%d,%d,%d]}",
+                     (i > 0) ? "," : "",
+                     g->players[i].name,
+                     g->players[i].cricket_score,
+                     g->players[i].cricket_marks[0],
+                     g->players[i].cricket_marks[1],
+                     g->players[i].cricket_marks[2],
+                     g->players[i].cricket_marks[3],
+                     g->players[i].cricket_marks[4],
+                     g->players[i].cricket_marks[5],
+                     g->players[i].cricket_marks[6]);
         }
 
         strncat(players_json, one, sizeof(players_json) - strlen(players_json) - 1);
@@ -255,7 +329,7 @@ static void publish_state(GameCtx* g) {
 
     strcat(players_json, "]");
 
-    char out[1536];
+    char out[4096];
     snprintf(out, sizeof(out),
              "{"
              "\"active\":%d,"
@@ -320,9 +394,10 @@ static void game_finish_turn(GameCtx* g) {
 static void game_recompute_from_history(GameCtx* g) {
     if (!g) return;
 
-    /* Remise à zéro état dérivé */
     for (int i = 0; i < MAX_PLAYERS; i++) {
         g->players[i].score = 0;
+        g->players[i].cricket_score = 0;
+        memset(g->players[i].cricket_marks, 0, sizeof(g->players[i].cricket_marks));
     }
 
     if (g->mode == GAME_MODE_301 || g->mode == GAME_MODE_501) {
@@ -355,8 +430,8 @@ static void game_recompute_from_history(GameCtx* g) {
 
         if (g->mode == GAME_MODE_HIGH_SCORE) {
             g->players[p].score += d->score;
-        } else {
-            /* x01 : appliquer avec bust + double-out */
+        }
+        else if (g->mode == GAME_MODE_301 || g->mode == GAME_MODE_501) {
             if (d->dart_in_turn == 1) {
                 turn_start_remaining[p] = g->players[p].remaining;
             }
@@ -380,8 +455,6 @@ static void game_recompute_from_history(GameCtx* g) {
             if (bust) {
                 g->players[p].remaining = turn_start_remaining[p];
                 d->bust = 1;
-
-                /* le tour s'arrête immédiatement */
                 g->current_dart = DARTS_PER_TURN;
             } else {
                 g->players[p].remaining = after;
@@ -394,8 +467,42 @@ static void game_recompute_from_history(GameCtx* g) {
                 }
             }
         }
+        else if (g->mode == GAME_MODE_CRICKET) {
+            int idx = cricket_target_index(d->sector);
+            if (idx >= 0) {
+                int marks = cricket_marks_from_hit(d->ring, d->sector);
+                int old_marks = g->players[p].cricket_marks[idx];
+                int new_marks = old_marks + marks;
 
-        /* Avancement logique du jeu */
+                if (new_marks <= 3) {
+                    g->players[p].cricket_marks[idx] = new_marks;
+                } else {
+                    g->players[p].cricket_marks[idx] = 3;
+
+                    int extra = new_marks - 3;
+                    int all_closed_by_others = 1;
+                    for (int j = 0; j < g->player_count; j++) {
+                        if (j == p) continue;
+                        if (g->players[j].cricket_marks[idx] < 3) {
+                            all_closed_by_others = 0;
+                            break;
+                        }
+                    }
+
+                    if (!all_closed_by_others) {
+                        g->players[p].cricket_score += extra * cricket_target_value(idx);
+                    }
+                }
+            }
+
+            if (cricket_all_closed(&g->players[p]) &&
+                cricket_has_highest_or_equal_score(g, p)) {
+                g->active = 0;
+                g->waiting_board_clear = 0;
+                return;
+            }
+        }
+
         g->current_dart++;
 
         if (g->current_dart > DARTS_PER_TURN || d->bust) {
@@ -457,12 +564,7 @@ static int game_override_last(GameCtx* g, int score, const char* ring, int secto
     if (!g || !g->active) return 0;
     if (g->history_count <= 0) return 0;
 
-    /* On récupère le contexte du dernier dart */
-    DartRecord last = g->history[g->history_count - 1];
-
     if (!game_undo_last(g)) return 0;
-
-    /* On réinjecte un dart manuel corrigé */
     return game_add_dart(g, 0ULL, 1, score, ring, sector);
 }
 

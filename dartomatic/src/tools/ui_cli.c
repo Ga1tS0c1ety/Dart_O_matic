@@ -132,8 +132,7 @@ static void ui_render(UiCtx* ctx) {
 
     if (!ctx->has_state) {
         printf(" État : aucun état reçu\n");
-        printf(" Commandes : [h] high  [1] 301  [5] 501  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
-        printf("> ");
+        printf(" Commandes : [h] high  [1] 301  [5] 501  [c] cricket  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");        printf("> ");
         fflush(stdout);
         pthread_mutex_unlock(&ctx->lock);
         return;
@@ -170,7 +169,7 @@ static void ui_render(UiCtx* ctx) {
     }
 
     ui_separator();
-    printf(" Commandes : [h] high  [1] 301  [5] 501  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");
+    printf(" Commandes : [h] high  [1] 301  [5] 501  [c] cricket  [u] undo  [o] override  [a] add_manual  [n] clear  [q] quit\n");        printf("> ");
     printf("> ");
     fflush(stdout);
 
@@ -391,6 +390,9 @@ int main(int argc, char** argv) {
         }
         else if (ch == '\n' || ch == '\r') {
             /* ignore */
+        }
+        else if (ch == 'c' || ch == 'C') {
+    publish_start_mode(bus, "cricket");
         }
         else {
             printf("[UI] commande inconnue '%c'\n> ", ch);
