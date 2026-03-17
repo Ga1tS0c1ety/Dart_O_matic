@@ -113,3 +113,30 @@ target_include_directories(cam_process PRIVATE
 target_link_libraries(cam_process
     ${OpenCV_LIBS}
 )
+
+add_library(vision_calibration
+    src/services/calibration/calibration.cpp
+)
+
+target_include_directories(vision_calibration PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(vision_calibration
+    ${OpenCV_LIBS}
+)
+
+add_executable(calib_intrinsic
+    src/tools/calib_intrinsic.cpp
+)
+
+target_include_directories(calib_intrinsic PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(calib_intrinsic
+    vision_calibration
+    ${OpenCV_LIBS}
+)
