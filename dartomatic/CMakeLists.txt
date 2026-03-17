@@ -140,3 +140,16 @@ target_link_libraries(calib_intrinsic
     vision_calibration
     ${OpenCV_LIBS}
 )
+
+add_executable(calib_extrinsic_aruco
+    src/tools/calib_extrinsic_aruco.cpp
+)
+
+target_include_directories(calib_extrinsic_aruco PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(calib_extrinsic_aruco
+    ${OpenCV_LIBS}
+)
