@@ -186,3 +186,17 @@ target_link_libraries(debug_dart_detector
     pthread
     m
 )
+
+add_executable(debug_triangulated_view
+    src/tools/debug_triangulated_view.cpp
+)
+
+target_include_directories(debug_triangulated_view PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(debug_triangulated_view
+    appbus_client
+    ${OpenCV_LIBS}
+)
