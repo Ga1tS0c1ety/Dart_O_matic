@@ -5,6 +5,6 @@ cd "$ROOT"
 
 rm -rf build
 cmake -S . -B build
-cmake --build build -j
+cmake --build build -j2
 
 ./scripts/run_ui.sh

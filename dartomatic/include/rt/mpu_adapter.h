@@ -12,6 +12,10 @@
  *  - main_rt surveille le fd en lecture dans select()
  */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     int rfd; /* read end */
     int wfd; /* write end */
@@ -28,3 +32,7 @@ int  mpu_adapter_fd(const MpuAdapter* a);
 
 /* À appeler depuis le thread MPU quand un impact est détecté */
 int  mpu_adapter_notify_impact(MpuAdapter* a);
+
+#ifdef __cplusplus
+}
+#endif
