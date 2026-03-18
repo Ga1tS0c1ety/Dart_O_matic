@@ -153,3 +153,36 @@ target_include_directories(calib_extrinsic_aruco PRIVATE
 target_link_libraries(calib_extrinsic_aruco
     ${OpenCV_LIBS}
 )
+
+add_executable(debug_camera
+    src/tools/debug_camera.cpp
+    src/vision/usb_camera.cpp
+)
+
+target_include_directories(debug_camera PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(debug_camera
+    ${OpenCV_LIBS}
+)
+
+add_executable(debug_dart_detector
+    src/tools/debug_dart_detector.cpp
+    src/vision/usb_camera.cpp
+    src/vision/dart_detector.cpp
+    src/rt/mpu_adapter.c
+    src/rt/mpu6050_thread_adapted.c
+)
+
+target_include_directories(debug_dart_detector PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(debug_dart_detector
+    ${OpenCV_LIBS}
+    pthread
+    m
+)

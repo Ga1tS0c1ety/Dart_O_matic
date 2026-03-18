@@ -44,14 +44,16 @@ int dart_detector_init(int width, int height)
     img_width = width;
     img_height = height;
 
-    #ifdef DEBUG
+    if (debug_enabled) {
     cv::namedWindow("DIFF", cv::WINDOW_AUTOSIZE);
     cv::namedWindow("DEBUG", cv::WINDOW_AUTOSIZE);
-    #endif
+}
 
     std::cout << "[DART] Detector initialized (difference + central filtering)" << std::endl;
     return 0;
 }
+
+static int debug_enabled = 0;
 
 void dart_detector_set_reference(const unsigned char* frame,
                                  size_t frame_size)
@@ -267,15 +269,25 @@ for (const auto& p : points) {
     );
     cv::line(diff_color, pt1, pt2, cv::Scalar(0, 0, 255), 2);
 
-    #ifdef DEBUG
+    if (debug_enabled) {
     cv::imshow("DIFF", diff_color);
     cv::imshow("DEBUG", debug);
     cv::waitKey(1);
-    #endif
+}
 
     prev_gray = current_gray.clone();
     state = IMPACT_DETECTED;
     return 1;
+}
+
+void dart_detector_set_debug_enabled(int enabled)
+{
+    debug_enabled = (enabled != 0);
+}
+
+int dart_detector_get_debug_enabled(void)
+{
+    return debug_enabled;
 }
 
 // =========================================================

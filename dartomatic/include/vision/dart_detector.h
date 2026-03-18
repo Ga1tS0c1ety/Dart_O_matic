@@ -26,6 +26,9 @@ int dart_detector_process(const unsigned char* input_frame, size_t frame_size,
 void dart_detector_set_reference(const unsigned char* frame, size_t frame_size);
 void dart_detector_close(void);
 
+void dart_detector_set_debug_enabled(int enabled);
+int dart_detector_get_debug_enabled(void);
+
 #ifdef __cplusplus
 }
 #endif

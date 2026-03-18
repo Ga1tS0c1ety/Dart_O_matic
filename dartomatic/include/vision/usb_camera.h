@@ -22,6 +22,10 @@ void usb_camera_get_size(int* width, int* height);
 // Ferme proprement
 void usb_camera_close(void);
 
+/* Nouveau : config runtime */
+void usb_camera_set_display_enabled(int enabled);
+int  usb_camera_get_display_enabled(void);
+
 
 #ifdef __cplusplus
 }

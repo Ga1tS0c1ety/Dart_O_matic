@@ -7,14 +7,12 @@
 #include <unistd.h>
 //#define OPENCV
 
-//#define DEBUG
-
 static cv::VideoCapture cap;
 static cv::Mat frame_raw;
 static cv::Mat frame_processed;
 static int cam_width = 0;
 static int cam_height = 0;
-static bool display_enabled = true;  // on affiche par défaut dans les exemples
+static bool display_enabled = false;  // on n'affiche pas par défaut dans les exemples
 
 int usb_camera_init(int camera_index, int width, int height)
 {
@@ -87,10 +85,8 @@ int usb_camera_read(unsigned char* output_buffer, size_t buffer_size) {
 
     // Affichage
     if (display_enabled) {
-        #ifdef DEBUG
         cv::imshow("Caméra USB - Projection 3D", frame_processed);
         cv::waitKey(1);
-        #endif
     }
 
     return 0;
@@ -101,8 +97,17 @@ void usb_camera_get_size(int* width, int* height) {
     if (height) *height = cam_height;
 }
 
+void usb_camera_set_display_enabled(int enabled) {
+    display_enabled = (enabled != 0);
+}
+
+int usb_camera_get_display_enabled(void) {
+    return display_enabled ? 1 : 0;
+}
+
 void usb_camera_close(void) {
     display_enabled = false;
     cv::destroyAllWindows();
     if (cap.isOpened()) cap.release();
 }
+
