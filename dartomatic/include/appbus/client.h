@@ -1,6 +1,9 @@
 #pragma once
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Handle opaque : l'utilisateur n'a pas à connaître l'intérieur */
 typedef struct AppBusClient AppBusClient;
 
@@ -33,3 +36,6 @@ int appbus_publish(AppBusClient* c, const char* topic, const char* payload_json)
  * À chaque PUB reçu, déclenche cb(topic, payload,...).
  */
 int appbus_poll(AppBusClient* c, appbus_on_message_fn cb, void* user);
+#ifdef __cplusplus
+}
+#endif
