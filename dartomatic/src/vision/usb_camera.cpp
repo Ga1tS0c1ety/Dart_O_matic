@@ -1,22 +1,24 @@
-// src/usb_camera.cpp (modification importante)
 #include "vision/usb_camera.h"
-//#include "../include/camera_model.h"
 #include <opencv2/opencv.hpp>
 #include <iostream>
-#include <opencv2/core.hpp>  // pour FileStorage
+#include <opencv2/core.hpp>
 #include <unistd.h>
-//#define OPENCV
+#include <cstring>
 
 static cv::VideoCapture cap;
 static cv::Mat frame_raw;
 static cv::Mat frame_processed;
 static int cam_width = 0;
 static int cam_height = 0;
-static bool display_enabled = false;  // on n'affiche pas par défaut dans les exemples
+
+static bool display_enabled = false;
+static bool window_created = false;
+
+static const char* USB_CAMERA_WINDOW_NAME = "USB_CAMERA_DEBUG";
 
 int usb_camera_init(int camera_index, int width, int height)
 {
-    // Petit décalage pour éviter négociation USB simultanée
+    /* Petit décalage pour éviter négociation USB simultanée */
     usleep(500000 * camera_index);
 
     if (!cap.open(camera_index, cv::CAP_V4L2)) {
@@ -25,22 +27,20 @@ int usb_camera_init(int camera_index, int width, int height)
         return -1;
     }
 
-    // === FORCER MJPG ===
+    /* FORCER MJPG */
     cap.set(cv::CAP_PROP_FOURCC,
             cv::VideoWriter::fourcc('M','J','P','G'));
 
-    // === FORCER RESOLUTION ===
+    /* FORCER RESOLUTION */
     cap.set(cv::CAP_PROP_FRAME_WIDTH,  width);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, height);
 
-    // === FORCER FPS (important en MJPG 720p) ===
+    /* FORCER FPS */
     cap.set(cv::CAP_PROP_FPS, 30);
 
-    // === BUFFER : NE PAS METTRE 1 EN MULTI-CAM ===
-    // 3 ou 4 = bon compromis latence / stabilité
+    /* BUFFER */
     cap.set(cv::CAP_PROP_BUFFERSIZE, 4);
 
-    // === Vérification réelle du FOURCC ===
     int fourcc = (int)cap.get(cv::CAP_PROP_FOURCC);
     char fcc[] = {
         (char)(fourcc & 0xFF),
@@ -50,7 +50,6 @@ int usb_camera_init(int camera_index, int width, int height)
         0
     };
 
-    // === Récupération valeurs réelles ===
     cam_width  = (int)cap.get(cv::CAP_PROP_FRAME_WIDTH);
     cam_height = (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT);
     double fps = cap.get(cv::CAP_PROP_FPS);
@@ -61,53 +60,73 @@ int usb_camera_init(int camera_index, int width, int height)
               << " @ ~" << fps << " fps"
               << std::endl;
 
-    // Vérification critique
     if (std::string(fcc) != "MJPG") {
         std::cerr << "[USB_CAMERA] WARNING: MJPG non appliqué!"
                   << std::endl;
     }
 
+    window_created = false;
     return 0;
 }
 
-int usb_camera_read(unsigned char* output_buffer, size_t buffer_size) {
+int usb_camera_read(unsigned char* output_buffer, size_t buffer_size)
+{
     if (!cap.isOpened()) return -1;
 
     cap >> frame_raw;
     if (frame_raw.empty()) return -1;
 
-    frame_processed = frame_raw.clone();  // copie pour traitement
+    frame_processed = frame_raw.clone();
 
-    // Copie dans le buffer fourni
     size_t required = (size_t)cam_width * cam_height * 3;
     if (buffer_size < required) return -1;
+
     std::memcpy(output_buffer, frame_processed.data, required);
 
-    // Affichage
     if (display_enabled) {
-        cv::imshow("Caméra USB - Projection 3D", frame_processed);
+        if (!window_created) {
+            cv::namedWindow(USB_CAMERA_WINDOW_NAME, cv::WINDOW_AUTOSIZE);
+            window_created = true;
+        }
+
+        cv::imshow(USB_CAMERA_WINDOW_NAME, frame_processed);
         cv::waitKey(1);
     }
 
     return 0;
 }
 
-void usb_camera_get_size(int* width, int* height) {
+void usb_camera_get_size(int* width, int* height)
+{
     if (width) *width = cam_width;
     if (height) *height = cam_height;
 }
 
-void usb_camera_set_display_enabled(int enabled) {
+void usb_camera_set_display_enabled(int enabled)
+{
     display_enabled = (enabled != 0);
+
+    if (!display_enabled && window_created) {
+        cv::destroyWindow(USB_CAMERA_WINDOW_NAME);
+        window_created = false;
+    }
 }
 
-int usb_camera_get_display_enabled(void) {
+int usb_camera_get_display_enabled(void)
+{
     return display_enabled ? 1 : 0;
 }
 
-void usb_camera_close(void) {
-    display_enabled = false;
-    cv::destroyAllWindows();
-    if (cap.isOpened()) cap.release();
-}
+void usb_camera_close(void)
+{
+    if (window_created) {
+        cv::destroyWindow(USB_CAMERA_WINDOW_NAME);
+        window_created = false;
+    }
 
+    display_enabled = false;
+
+    if (cap.isOpened()) {
+        cap.release();
+    }
+}

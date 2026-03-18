@@ -1,53 +1,81 @@
-// example/test_usb_camera.c
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 #include "vision/usb_camera.h"
+
+/*
+ * debug_camera
+ * ------------
+ * Tool simple pour valider :
+ *  - ouverture caméra
+ *  - flux vidéo
+ *  - dimensions réelles
+ *
+ * Usage :
+ *   ./build/debug_camera <camera_id>
+ *
+ * Quit :
+ *   Ctrl+C dans le terminal
+ *
+ * Note :
+ *   l'affichage éventuel dépend de ton usb_camera.cpp
+ *   (si DEBUG / display est activé côté implémentation).
+ */
 
 int main(int argc, char** argv)
 {
     if (argc != 2) {
-        printf("Usage : %s <camera_id>\n", argv[0]);
+        std::printf("Usage: %s <camera_id>\n", argv[0]);
         return -1;
     }
 
-    int camera_id = atoi(argv[1]); 
+    int camera_id = std::atoi(argv[1]);
+    if (camera_id < 0) {
+        std::fprintf(stderr, "[DEBUG_CAMERA] camera_id invalide\n");
+        return -1;
+    }
 
-    int width, height;
-
-    usb_camera_set_display_enabled(1);    
-
-    // Change l'index selon ta caméra USB (teste 0, 1, 2, 3...)
     if (usb_camera_init(camera_id, 1280, 720) != 0) {
-        printf("Erreur : impossible d'ouvrir la caméra USB (index 2)\n");
+        std::fprintf(stderr, "[DEBUG_CAMERA] erreur ouverture caméra %d\n", camera_id);
         return -1;
     }
 
-    
+    usb_camera_set_display_enabled(1);
 
-    usb_camera_get_size(&width, &height);
-    size_t buffer_size = (size_t)width * height * 3;
+    int w = 0, h = 0;
+    usb_camera_get_size(&w, &h);
 
-    unsigned char *frame_buffer = (unsigned char *)malloc(buffer_size);
-    if (frame_buffer == NULL) {
-        printf("Erreur allocation mémoire\n");
+    std::printf("[DEBUG_CAMERA] caméra %d prête (%dx%d)\n", camera_id, w, h);
+    std::printf("[DEBUG_CAMERA] Ctrl+C pour quitter\n");
+    std::fflush(stdout);
+
+    size_t buf_size = (size_t)w * h * 3;
+    unsigned char* frame_buffer = (unsigned char*)std::malloc(buf_size);
+    if (!frame_buffer) {
+        std::fprintf(stderr, "[DEBUG_CAMERA] malloc failed\n");
         usb_camera_close();
         return -1;
     }
 
-    printf("Caméra USB prête ! Le flux s'affiche dans une fenêtre OpenCV.\n");
-    printf("Appuie sur 'q' dans la fenêtre pour quitter.\n");
+    unsigned long frame_count = 0;
 
     while (1) {
-        if (usb_camera_read(frame_buffer, buffer_size) != 0) {
-            printf("Fin du stream ou erreur de capture\n");
+        if (usb_camera_read(frame_buffer, buf_size) != 0) {
+            std::fprintf(stderr, "[DEBUG_CAMERA] erreur lecture frame\n");
             break;
         }
 
-        // L'affichage est géré entièrement à l'intérieur de usb_camera.cpp
-        // Ici on ne fait rien d'autre → propre et modulaire
+        frame_count++;
+
+        if ((frame_count % 120UL) == 0UL) {
+            std::printf("[DEBUG_CAMERA] %lu frames lues\n", frame_count);
+            std::fflush(stdout);
+        }
     }
 
-    free(frame_buffer);
+    std::free(frame_buffer);
     usb_camera_close();
+    usb_camera_set_display_enabled(0);
     return 0;
 }
