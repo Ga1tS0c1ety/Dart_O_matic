@@ -96,4 +96,4 @@ echo "[run_ui] OK -> au moins 2 caméras prêtes"
 # UI au premier plan
 # -------------------------
 echo "[run_ui] lancement UI"
-"$BIN/ui_cli" "$SOCK"
+"$BIN/main_menu" "$SOCK"

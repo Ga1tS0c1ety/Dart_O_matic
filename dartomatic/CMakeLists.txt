@@ -200,3 +200,7 @@ target_link_libraries(debug_triangulated_view
     appbus_client
     ${OpenCV_LIBS}
 )
+
+add_executable(main_menu
+    src/tools/main_menu.c
+)
