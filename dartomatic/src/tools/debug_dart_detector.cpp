@@ -69,23 +69,26 @@ int main(int argc, char** argv)
     /* ----------------------------------------------------- */
     /* Caméra                                                */
     /* ----------------------------------------------------- */
+    usb_camera_set_display_enabled(1);
     if (usb_camera_init(camera_id, 1280, 720) != 0) {
         std::fprintf(stderr, "[DEBUG_DART] impossible d'ouvrir la caméra %d\n", camera_id);
         return -1;
     }
 
-    usb_camera_set_display_enabled(1);
+    
 
 
     int w = 0, h = 0;
     usb_camera_get_size(&w, &h);
+
+    dart_detector_set_debug_enabled(1);
 
     if (dart_detector_init(w, h) != 0) {
         std::fprintf(stderr, "[DEBUG_DART] dart_detector_init failed\n");
         usb_camera_close();
         return -1;
     }
-    dart_detector_set_debug_enabled(1);
+    
 
     size_t buf_size = (size_t)w * h * 3;
     unsigned char* frame_prev = (unsigned char*)std::malloc(buf_size);

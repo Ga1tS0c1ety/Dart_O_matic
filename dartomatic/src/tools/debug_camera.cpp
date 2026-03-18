@@ -37,10 +37,11 @@ int main(int argc, char** argv)
     }
 
     if (usb_camera_init(camera_id, 1280, 720) != 0) {
-        usb_camera_set_display_enabled(1);
         std::fprintf(stderr, "[DEBUG_CAMERA] erreur ouverture caméra %d\n", camera_id);
         return -1;
     }
+
+    usb_camera_set_display_enabled(1);
 
     int w = 0, h = 0;
     usb_camera_get_size(&w, &h);
