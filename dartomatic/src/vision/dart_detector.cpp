@@ -13,14 +13,11 @@ static inline float clamp01(float x) {
     return x;
 }
 
-//#define DEBUG
-
 // ==================== GLOBALS ====================
 static int img_width = 0;
 static int img_height = 0;
 
 static cv::Mat prev_gray, current_gray;
-
 
 // ==================== ÉTAT DU SYSTÈME ====================
 enum DetectorState {
@@ -34,27 +31,31 @@ static DetectorState state = IDLE;
 static cv::Point2f last_valid_tip;
 
 // ==================== PARAMÈTRES ====================
-static constexpr int MIN_CONTOUR_AREA = 5;   // pixels mini pour conserver un contour
+static constexpr int MIN_CONTOUR_AREA = 5;    // pixels mini pour conserver un contour
 static constexpr float DIST_THRESHOLD = 10.f; // distance max d'un point à la droite
 
-// =========================================================
-
+// ==================== DEBUG ====================
 static int debug_enabled = 0;
+static int debug_windows_created = 0;
+static const char* DART_DIFF_WINDOW  = "DART_DIFF";
+static const char* DART_DEBUG_WINDOW = "DART_DEBUG";
+
+// =========================================================
 
 int dart_detector_init(int width, int height)
 {
     img_width = width;
     img_height = height;
 
-    if (debug_enabled) {
-    cv::namedWindow("DIFF", cv::WINDOW_AUTOSIZE);
-    cv::namedWindow("DEBUG", cv::WINDOW_AUTOSIZE);
-}
+    if (debug_enabled && !debug_windows_created) {
+        cv::namedWindow(DART_DIFF_WINDOW, cv::WINDOW_AUTOSIZE);
+        cv::namedWindow(DART_DEBUG_WINDOW, cv::WINDOW_AUTOSIZE);
+        debug_windows_created = 1;
+    }
 
     std::cout << "[DART] Detector initialized (difference + central filtering)" << std::endl;
     return 0;
 }
-
 
 void dart_detector_set_reference(const unsigned char* frame,
                                  size_t frame_size)
@@ -74,9 +75,6 @@ int dart_detector_process(const unsigned char* input_frame,
                           double* impact_v,
                           float* confidence)
 {
-
-    //if (confidence) *confidence = conf;
-    
     if (!input_frame || frame_size < (size_t)img_width * img_height * 3)
         return -1;
 
@@ -84,7 +82,7 @@ int dart_detector_process(const unsigned char* input_frame,
     cv::cvtColor(frame, current_gray, cv::COLOR_BGR2GRAY);
 
     // ==================== DIFF ====================
-        // ==================== GALISATION LOCALE ====================
+    // ==================== ÉGALISATION LOCALE ====================
     cv::Mat current_eq, prev_eq;
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(8,8));
     clahe->apply(current_gray, current_eq);
@@ -102,10 +100,9 @@ int dart_detector_process(const unsigned char* input_frame,
     cv::threshold(diff_full, diff_full, 40, 255, cv::THRESH_BINARY);
 
     cv::Mat kernel = cv::getStructuringElement(
-    cv::MORPH_RECT, cv::Size(3, 15)
-);
-cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
-
+        cv::MORPH_RECT, cv::Size(3, 15)
+    );
+    cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
 
     // ==================== TIERS CENTRAL ====================
     int h_start = img_height / 3;
@@ -116,15 +113,14 @@ cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(diff_central, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
     if (contours.empty()) {
-      //  prev_gray = current_gray.clone();
         return 0;
     }
 
     auto max_cont_it = std::max_element(contours.begin(), contours.end(),
-                                       [](const std::vector<cv::Point>& a,
-                                          const std::vector<cv::Point>& b){
-                                           return cv::contourArea(a) < cv::contourArea(b);
-                                       });
+                                        [](const std::vector<cv::Point>& a,
+                                           const std::vector<cv::Point>& b){
+                                            return cv::contourArea(a) < cv::contourArea(b);
+                                        });
     std::vector<cv::Point> main_contour = *max_cont_it;
 
     cv::Rect bbox = cv::boundingRect(main_contour);
@@ -132,12 +128,8 @@ cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
     float aspect_ratio = (float)bbox.height / (float)bbox.width;
 
     if (aspect_ratio < 1.5f) {
-        // contour trop horizontal ? rejet
-        //prev_gray = current_gray.clone();
         return 0;
     }
-
-
 
     for (auto &pt : main_contour) pt.y += h_start;
 
@@ -149,11 +141,9 @@ cv::morphologyEx(diff_full, diff_full, cv::MORPH_CLOSE, kernel);
     if (line_dir.y < 0) line_dir = -line_dir;
 
     // si la droite est trop horizontale ? invalide
-if (std::abs(line_dir.y) < std::abs(line_dir.x)) {
-    //prev_gray = current_gray.clone();
-    return 0;
-}
-
+    if (std::abs(line_dir.y) < std::abs(line_dir.x)) {
+        return 0;
+    }
 
     // ==================== FILTRAGE ====================
     cv::Mat diff_filtered = cv::Mat::zeros(diff_full.size(), CV_8UC1);
@@ -181,23 +171,21 @@ if (std::abs(line_dir.y) < std::abs(line_dir.x)) {
     std::vector<cv::Point> points;
     cv::findNonZero(final_mask, points);
     if (points.empty()) {
-      //  prev_gray = current_gray.clone();
         return 0;
     }
 
     float max_proj = -FLT_MAX;
-cv::Point impact_pt;
+    cv::Point impact_pt;
 
-for (const auto& p : points) {
-    cv::Point2f v(p.x - line_pt.x, p.y - line_pt.y);
-    float proj = v.dot(line_dir);  // projection sur l?axe de la flchette
+    for (const auto& p : points) {
+        cv::Point2f v(p.x - line_pt.x, p.y - line_pt.y);
+        float proj = v.dot(line_dir);  // projection sur l’axe de la fléchette
 
-    if (proj > max_proj) {
-        max_proj = proj;
-        impact_pt = p;
+        if (proj > max_proj) {
+            max_proj = proj;
+            impact_pt = p;
+        }
     }
-}
-
 
     last_valid_tip = impact_pt;
     if (impact_u) *impact_u = last_valid_tip.x;
@@ -209,7 +197,6 @@ for (const auto& p : points) {
 
     // A) aire du contour principal (plus c'est grand, mieux c'est)
     float area = (float)cv::contourArea(main_contour);
-    // bornes à régler selon tes images; V1:
     const float A_MIN  = 20.f;    // en dessous -> très faible
     const float A_GOOD = 400.f;   // au-dessus -> très bon
     float area_score = clamp01((area - A_MIN) / (A_GOOD - A_MIN));
@@ -227,7 +214,6 @@ for (const auto& p : points) {
     float support_score = clamp01(((float)support - N_MIN) / (N_GOOD - N_MIN));
 
     // D) distance moyenne à la ligne (plus faible = mieux)
-    // On recalcule une moyenne de distance sur les points "final_mask"
     float mean_dist = 0.f;
     if (!points.empty()) {
         double sum = 0.0;
@@ -271,10 +257,16 @@ for (const auto& p : points) {
     cv::line(diff_color, pt1, pt2, cv::Scalar(0, 0, 255), 2);
 
     if (debug_enabled) {
-    cv::imshow("DIFF", diff_color);
-    cv::imshow("DEBUG", debug);
-    cv::waitKey(1);
-}
+        if (!debug_windows_created) {
+            cv::namedWindow(DART_DIFF_WINDOW, cv::WINDOW_AUTOSIZE);
+            cv::namedWindow(DART_DEBUG_WINDOW, cv::WINDOW_AUTOSIZE);
+            debug_windows_created = 1;
+        }
+
+        cv::imshow(DART_DIFF_WINDOW, diff_color);
+        cv::imshow(DART_DEBUG_WINDOW, debug);
+        cv::waitKey(1);
+    }
 
     prev_gray = current_gray.clone();
     state = IMPACT_DETECTED;
@@ -295,6 +287,10 @@ int dart_detector_get_debug_enabled(void)
 
 void dart_detector_close(void)
 {
-    cv::destroyAllWindows();
+    if (debug_windows_created) {
+        cv::destroyWindow(DART_DIFF_WINDOW);
+        cv::destroyWindow(DART_DEBUG_WINDOW);
+        debug_windows_created = 0;
+    }
     std::cout << "[DART] Detector closed." << std::endl;
 }
