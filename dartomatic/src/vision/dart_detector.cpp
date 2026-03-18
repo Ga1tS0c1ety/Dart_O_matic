@@ -39,6 +39,8 @@ static constexpr float DIST_THRESHOLD = 10.f; // distance max d'un point à la d
 
 // =========================================================
 
+static int debug_enabled = 0;
+
 int dart_detector_init(int width, int height)
 {
     img_width = width;
@@ -53,7 +55,6 @@ int dart_detector_init(int width, int height)
     return 0;
 }
 
-static int debug_enabled = 0;
 
 void dart_detector_set_reference(const unsigned char* frame,
                                  size_t frame_size)
