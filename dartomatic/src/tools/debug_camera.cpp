@@ -14,7 +14,7 @@ int main(int argc, char** argv)
 
     int width, height;
 
-    dart_detector_set_debug_enabled(1);
+    usb_camera_set_display_enabled(1);    
 
     // Change l'index selon ta caméra USB (teste 0, 1, 2, 3...)
     if (usb_camera_init(camera_id, 1280, 720) != 0) {
