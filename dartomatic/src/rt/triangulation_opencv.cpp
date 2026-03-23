@@ -139,8 +139,10 @@ extern "C" int triangulation_from_bundle(const ImpactBundle* b,
             ObservedPoint2D pts[2];
             CameraModel pair[2];
 
-            undistort_point_opencv(&cams[i], u_i, v_i, &pts[0].u, &pts[0].v);
-            undistort_point_opencv(&cams[j], u_j, v_j, &pts[1].u, &pts[1].v);
+            pts[0].u = u_i;
+pts[0].v = v_i;
+pts[1].u = u_j;
+pts[1].v = v_j;
 
             pair[0] = cams[i];
             pair[1] = cams[j];
