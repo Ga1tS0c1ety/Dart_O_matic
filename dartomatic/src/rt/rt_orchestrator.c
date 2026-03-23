@@ -94,22 +94,28 @@ void rt_orch_tick(RtOrchestrator* o, uint64_t now_us) {
     if (o->state == ORCH_COOLDOWN) {
         if (now_us >= o->cooldown_until_us) {
             o->state = ORCH_IDLE;
+            printf("[RT][ORCH] cooldown fini -> IDLE\n");
         }
         return;
     }
 
     if (o->state == ORCH_ARMED) {
         aggregator_tick(&o->ag, now_us);
-        /* Le passage en cooldown se fera quand on pollera un bundle prêt */
+
+        /*
+         * Cas important :
+         * l'aggregator peut s'être reset sans bundle
+         * (ex: fenêtre expirée avec pas assez d'obs).
+         * Dans ce cas, il faut sortir de ARMED,
+         * sinon les prochains impacts MPU seront ignorés.
+         */
+        if (!aggregator_is_active(&o->ag)) {
+            o->state = ORCH_COOLDOWN;
+            o->cooldown_until_us = now_us + ms_to_us(o->p.cooldown_ms);
+            printf("[RT][ORCH] aggregator inactif sans bundle -> COOLDOWN\n");
+        }
         return;
     }
-
-    //         // ✅ si l'aggregator s'est reset (rejet), on sort de ARMED
-    // if (!o->ag.active) {
-    //         o->state = ORCH_COOLDOWN;                 // ou ORCH_IDLE si tu préfères
-    //         o->cooldown_until_us = now_us + ms_to_us(o->p.cooldown_ms);
-    //     }
-    //     return;
 }
 
 int rt_orch_poll_bundle(RtOrchestrator* o, ImpactBundle* out) {

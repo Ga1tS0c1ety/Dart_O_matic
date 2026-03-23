@@ -48,16 +48,35 @@ void aggregator_on_trigger(Aggregator* ag, uint64_t impact_id, uint64_t ts_us) {
     ag->ts_trigger_us = ts_us;
     ag->deadline_us = ts_us + ms_to_us(ag->p.window_ms);
     ag->expired = 0;
+
+    printf("[AGGR] trigger impact_id=%llu deadline=%llu\n",
+           (unsigned long long)ag->impact_id,
+           (unsigned long long)ag->deadline_us);
 }
 
 void aggregator_on_observation(Aggregator* ag, int cam_index, const RtObservationMsg* msg) {
     if (!ag || !msg) return;
-    if (!ag->active) return;
+
+    if (!ag->active) {
+        printf("[AGGR] obs ignorée cam=%d impact_id=%llu : aggregator inactif\n",
+               msg->cam_id, (unsigned long long)msg->impact_id);
+        return;
+    }
 
     /* On ne prend que les obs pour l'impact courant */
-    if (msg->impact_id != ag->impact_id) return;
+    if (msg->impact_id != ag->impact_id) {
+        printf("[AGGR] obs ignorée cam=%d impact_id=%llu : impact courant=%llu\n",
+               msg->cam_id,
+               (unsigned long long)msg->impact_id,
+               (unsigned long long)ag->impact_id);
+        return;
+    }
 
-    if (cam_index < 0 || cam_index >= ag->p.n_cams) return;
+    if (cam_index < 0 || cam_index >= ag->p.n_cams) {
+        printf("[AGGR] obs ignorée cam=%d impact_id=%llu : cam_index invalide\n",
+               msg->cam_id, (unsigned long long)msg->impact_id);
+        return;
+    }
 
     /*
      * Politique : 1 obs par caméra.
@@ -70,6 +89,19 @@ void aggregator_on_observation(Aggregator* ag, int cam_index, const RtObservatio
         ag->best_obs[cam_index].v = msg->v;
         ag->best_obs[cam_index].conf = msg->conf;
         ag->best_obs[cam_index].ts_us = msg->ts_us;
+
+        printf("[AGGR] obs acceptée impact_id=%llu cam_index=%d cam_id=%d conf=%.2f\n",
+               (unsigned long long)ag->impact_id,
+               cam_index,
+               msg->cam_id,
+               msg->conf);
+    } else {
+        printf("[AGGR] obs rejetée impact_id=%llu cam_index=%d cam_id=%d conf=%.2f < best=%.2f\n",
+               (unsigned long long)ag->impact_id,
+               cam_index,
+               msg->cam_id,
+               msg->conf,
+               ag->best_obs[cam_index].conf);
     }
 }
 
@@ -77,8 +109,10 @@ void aggregator_tick(Aggregator* ag, uint64_t now_us) {
     if (!ag) return;
     if (!ag->active) return;
 
-    if (now_us >= ag->deadline_us) {
+    if (!ag->expired && now_us >= ag->deadline_us) {
         ag->expired = 1;
+        printf("[AGGR] impact_id=%llu fenêtre expirée\n",
+               (unsigned long long)ag->impact_id);
     }
 }
 
@@ -97,19 +131,25 @@ int aggregator_poll_ready(Aggregator* ag, ImpactBundle* out) {
     int c = count_obs(ag);
 
     /*
-     * Stratégie V1 :
-     * - si on a toutes les caméras -> prêt immédiatement
-     * - sinon, on attend la fin de la fenêtre (expired)
-     * - à l'expiration, on valide si c >= min_cams
+     * Nouvelle stratégie V1.1 :
+     * - si on a au moins min_cams -> prêt immédiatement
+     * - sinon on attend la fin de la fenêtre
+     * - à l'expiration, si toujours pas assez d'obs -> rejet
      *
-     * Avantage : tu collectes un maximum d'obs dans la fenêtre.
+     * Avantage :
+     * - beaucoup moins de latence
+     * - évite d'attendre inutilement 800 ms quand 2 cams suffisent
      */
-    int all_cams = (c == ag->p.n_cams);
-    int ready_now = all_cams || ag->expired;
+    int enough_cams = (c >= ag->p.min_cams);
+    int ready_now = enough_cams || ag->expired;
 
     if (!ready_now) return 0;
+
     if (c < ag->p.min_cams) {
-        /* fenêtre finie mais pas assez d'observations -> on jette cet impact */
+        printf("[AGGR] impact_id=%llu rejeté : obs=%d < min=%d\n",
+               (unsigned long long)ag->impact_id,
+               c,
+               ag->p.min_cams);
         aggregator_reset(ag);
         return 0;
     }
@@ -126,6 +166,10 @@ int aggregator_poll_ready(Aggregator* ag, ImpactBundle* out) {
         }
     }
     out->obs_count = k;
+
+    printf("[AGGR] impact_id=%llu prêt : obs=%d\n",
+           (unsigned long long)out->impact_id,
+           out->obs_count);
 
     /* Consommé -> reset pour le prochain tir */
     aggregator_reset(ag);
